@@ -66,7 +66,7 @@ public/assets/            models/ sounds/ textures/ + CREDITS.md + manifest.json
 
 ### 重要約定
 - **地面材質標記**：每個可踩的 mesh 設定 `mesh.userData.surface`，值為
-  `'concrete' | 'metal' | 'wood' | 'grass' | 'gravel' | 'dirt' | 'water' | 'tile' | 'carpet' | 'sand'`。
+  `'concrete' | 'metal' | 'wood' | 'grass' | 'gravel' | 'dirt' | 'water' | 'tile' | 'carpet' | 'sand' | 'metal_hollow' | 'metal_grate'`（`metal` 鐵板、`metal_hollow` 貨櫃頂、`metal_grate` 格柵）。
   玩家向下射線讀取材質，決定腳步聲。槍彈擊中時也依材質播放不同的命中聲。
 - **空間（回音區）**：地圖定義 `ReverbZone { box: Box3, type: 'outdoor' | 'indoor_small' | 'indoor_large' | 'tunnel' }`，
   AudioManager 依玩家所在區域切換 ConvolverNode 的混音比例（用程式產生脈衝響應，不需要素材）。

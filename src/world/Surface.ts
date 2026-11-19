@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 export const SURFACES = [
   'concrete', 'metal', 'wood', 'grass', 'gravel',
-  'dirt', 'water', 'tile', 'carpet', 'sand',
+  'dirt', 'water', 'tile', 'carpet', 'sand', 'metal_hollow', 'metal_grate',
 ] as const;
 export type Surface = (typeof SURFACES)[number];
 export const DEFAULT_SURFACE: Surface = 'concrete';

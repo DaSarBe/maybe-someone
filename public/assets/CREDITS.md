@@ -52,6 +52,7 @@
 | sounds/footsteps/gravel/01.ogg | DifferentSteps（gravel.ogg），作者 TinyWorlds | https://opengameart.org/content/different-steps-on-wood-stone-leaves-gravel-and-mud | CC0 | 單一步 |
 | sounds/footsteps/gravel/02–04.ogg | 100 CC0 SFX v2（stones_01/02/03），作者 rubberduck | https://opengameart.org/content/100-cc0-sfx-2 | CC0 | 原為石頭音效，當作碎石使用 |
 | sounds/footsteps/water/01–03.ogg | 100 CC0 SFX v2（footstep_wet_01/02/03），作者 rubberduck | https://opengameart.org/content/100-cc0-sfx-2 | CC0 | |
+| sounds/footsteps/{metal,metal_hollow,metal_grate}/01–09 / 01–08 / 01–08.ogg | Metal footsteps on concrete（metal_steps_01–25.wav），作者 Thimras | https://opengameart.org/content/metal-footsteps-on-concrete | CC0 | 25 步平均分三組，轉單聲道 44.1kHz、去頭尾靜音、正規化後，各自疊加本專案合成的特色層：metal 低頻共鳴（鐵板）、metal_hollow 空心咚咚與殘響（貨櫃頂）、metal_grate 高通濾波加細小碰撞與清脆泛音（格柵）。疊加層為本專案自製 |
 | sounds/footsteps/sand/01–05.ogg | Water splash and sand footsteps（sand_footsteps_0.mp3），作者 Peludo | https://opengameart.org/content/water-splash-and-sand-footsteps | CC0 | 由一段連續錄音依靜音切出 5 步 |
 | sounds/weapons/pistol_fire_01–04.ogg | Gunshots（22 Pistol.wav / 22 Magnum.wav），作者 kurt | https://opengameart.org/content/gunshots | CC0 | 原檔為多發連續錄音（含回音），依靜音切出單發 |
 | sounds/weapons/rifle_fire_01–03.ogg | Gunshot sounds（sounds.zip 內 sks.wav） | https://opengameart.org/content/gunshot-sounds | **CC BY 3.0** | 署名：Vincent Sevedge（sounds.zip 內 creativecommons.txt 所載，「Audio and Visual content is covered under the Creative Commons Attribution 3.0 Unported License」，http://creativecommons.org/licenses/by/3.0/）。注意：OGA 作品頁標示 CC0 且列作者為 Tabasco，與壓縮檔內的授權文字不一致，依較保守的 CC BY 3.0 處理並署名。 |
@@ -61,7 +62,7 @@
 | sounds/ambient/indoor_room_tone.ogg | Sci-fi ambience SFX（SFX SCI FI Computer room ambience），作者 Fun Gi Development | https://opengameart.org/content/sci-fi-ambience-sfx | CC0 | 以交叉淡化處理為循環；作為室內環境音為近似替代 |
 
 未使用的素材（授權不符或無法取得）：
-- The Free Firearm Sound Library（CC0，194 MB，僅提供 .7z；本次無法解壓，未使用）。其餘 .7z 來源（Metal footsteps on concrete、Fantozzi footsteps）同樣因無法解壓而未使用。
+- The Free Firearm Sound Library（CC0，194 MB，僅提供 .7z；本次無法解壓，未使用）。其餘 .7z 來源（Fantozzi footsteps）同樣因無法解壓而未使用。
 - CC-BY 3.0 以上、CC-BY-SA、GPL 來源（如 Gary Guns / Q009 / Red Eclipse / Shotgun Shoot Reload / 2 Metal Weapon Clicks / Footsteps on different surfaces 等）皆未使用。
 - Gunshot sounds 的 sounds.zip 中 cz.wav、mosin.wav、shotty.wav 未使用（授權文字與 CC0 標示不一致，僅取用 sks.wav 並署名）。
 

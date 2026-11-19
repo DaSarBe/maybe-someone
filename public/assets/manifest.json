@@ -45,6 +45,37 @@
       "sounds/footsteps/sand/03.ogg",
       "sounds/footsteps/sand/04.ogg",
       "sounds/footsteps/sand/05.ogg"
+    ],
+    "metal": [
+      "sounds/footsteps/metal/01.ogg",
+      "sounds/footsteps/metal/02.ogg",
+      "sounds/footsteps/metal/03.ogg",
+      "sounds/footsteps/metal/04.ogg",
+      "sounds/footsteps/metal/05.ogg",
+      "sounds/footsteps/metal/06.ogg",
+      "sounds/footsteps/metal/07.ogg",
+      "sounds/footsteps/metal/08.ogg",
+      "sounds/footsteps/metal/09.ogg"
+    ],
+    "metal_hollow": [
+      "sounds/footsteps/metal_hollow/01.ogg",
+      "sounds/footsteps/metal_hollow/02.ogg",
+      "sounds/footsteps/metal_hollow/03.ogg",
+      "sounds/footsteps/metal_hollow/04.ogg",
+      "sounds/footsteps/metal_hollow/05.ogg",
+      "sounds/footsteps/metal_hollow/06.ogg",
+      "sounds/footsteps/metal_hollow/07.ogg",
+      "sounds/footsteps/metal_hollow/08.ogg"
+    ],
+    "metal_grate": [
+      "sounds/footsteps/metal_grate/01.ogg",
+      "sounds/footsteps/metal_grate/02.ogg",
+      "sounds/footsteps/metal_grate/03.ogg",
+      "sounds/footsteps/metal_grate/04.ogg",
+      "sounds/footsteps/metal_grate/05.ogg",
+      "sounds/footsteps/metal_grate/06.ogg",
+      "sounds/footsteps/metal_grate/07.ogg",
+      "sounds/footsteps/metal_grate/08.ogg"
     ]
   },
   "weapons": {
@@ -236,11 +267,10 @@
     "impacts.flesh uses impact_soft_medium (soft thud) as an approximation; impacts.generic uses impact_generic_light for concrete and unknown surfaces.",
     "ambient.machinery_hum is Kenney Sci-fi engine_circular_000 used as an approximate indoor hum; ambient.time_rift is force_field_000.",
     "textures are 128x128 PS1-style surface textures; tileable status not verified.",
-    "footsteps.gravel/water/sand, weapons.pistol_fire/reload, ambient.harbor_wind/indoor_room_tone: OpenGameArt CC0 (see CREDITS.md). weapons.rifle_fire: CC-BY 3.0, attribution required (see CREDITS.md).",
+    "footsteps.metal/metal_hollow/metal_grate: Thimras CC0 recordings (metal steps on concrete) with a project-synthesized character layer on top (see CREDITS.md). footsteps.gravel/water/sand, weapons.pistol_fire/reload, ambient.harbor_wind/indoor_room_tone: OpenGameArt CC0 (see CREDITS.md). weapons.rifle_fire: CC-BY 3.0, attribution required (see CREDITS.md).",
     "sfx.*, ui.equip/sell/buy, textures.scifi_floor/scifi_wall: see CREDITS.md (Sci-Fi Sounds/512 SFX CC0 via OpenGameArt; scifi textures are procedurally generated in-project). sfx.search_rummage is synthesized noise, not a sampled recording."
   ],
   "missing": [
-    "footsteps.metal",
     "footsteps.dirt",
     "footsteps.tile",
     "weapons.dry_fire",

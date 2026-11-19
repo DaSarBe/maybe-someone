@@ -24,6 +24,7 @@ export const THANKS: { who: string; what: string; href: string }[] = [
   { who: 'rubberduck', what: '100 CC0 SFX (footsteps, stones)', href: 'https://opengameart.org/content/100-cc0-sfx-2' },
   { who: 'TinyWorlds', what: 'Different steps (gravel)', href: 'https://opengameart.org/content/different-steps-on-wood-stone-leaves-gravel-and-mud' },
   { who: 'Peludo', what: 'Sand footsteps', href: 'https://opengameart.org/content/water-splash-and-sand-footsteps' },
+  { who: 'Thimras', what: 'Metal footsteps on concrete (metal / container / grate steps)', href: 'https://opengameart.org/content/metal-footsteps-on-concrete' },
   { who: 'SpringySpringo', what: 'Gun reload sounds', href: 'https://opengameart.org/content/gun-reload-sounds' },
   { who: 'zer0_sol', what: 'Handgun reload sound', href: 'https://opengameart.org/content/handgun-reload-sound-effect' },
   { who: 'SketchMan3', what: 'Wind whoosh loop', href: 'https://opengameart.org/content/wind-whoosh-loop' },

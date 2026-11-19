@@ -15,6 +15,8 @@ const VOLUME_JITTER = 0.10; // ±10%
 export const FOOTSTEP_BANKS: Record<Surface, string> = {
   concrete: 'footsteps.concrete',
   metal: 'footsteps.metal',
+  metal_hollow: 'footsteps.metal_hollow',
+  metal_grate: 'footsteps.metal_grate',
   wood: 'footsteps.wood',
   grass: 'footsteps.grass',
   gravel: 'footsteps.gravel',
@@ -32,6 +34,8 @@ export const IMPACT_PROFILES: Record<Surface, ImpactProfile> = {
   concrete: { bank: 'impacts.concrete', volume: 1, rate: 1 },
   tile: { bank: 'impacts.concrete', volume: 0.9, rate: 1.25 },
   metal: { bank: 'impacts.metal', volume: 1, rate: 1 },
+  metal_hollow: { bank: 'impacts.metal', volume: 1, rate: 0.85 },
+  metal_grate: { bank: 'impacts.metal', volume: 0.95, rate: 1.15 },
   wood: { bank: 'impacts.wood', volume: 1, rate: 1 },
   grass: { bank: 'impacts.generic', volume: 0.5, rate: 0.8, lowpass: 1400 },
   dirt: { bank: 'impacts.generic', volume: 0.55, rate: 0.75, lowpass: 1200 },

@@ -201,6 +201,37 @@ const metalStep: Recipe = {
   },
 };
 
+/** 貨櫃頂：較低的空心咚咚 + 長一點的低頻殘響 */
+const metalHollowStep: Recipe = {
+  duration: 0.7, peak: 0.8, variants: 4,
+  build(b) {
+    b.burst({ type: 'highpass', freq: 1500, q: 0.7, peak: 0.5, attack: 0.0005, decay: 0.012 });
+    const base = b.rng.range(100, 130);
+    [1, 1.5, 2.24, 2.98].forEach((r, i) => {
+      b.tone({ freq: base * r * b.rng.range(0.98, 1.02), peak: 0.7 / (1 + i * 0.5), attack: 0.002, decay: 0.18 / (1 + i * 0.2) });
+    });
+    b.tone({ freq: b.rng.range(380, 440), peak: 0.18, attack: 0.001, decay: 0.25 });
+  },
+};
+
+/** 格柵：清脆的高頻碰撞 + 幾聲延遲的小喀啦 + 中高頻泛音 */
+const metalGrateStep: Recipe = {
+  duration: 0.45, peak: 0.8, variants: 4,
+  build(b) {
+    b.burst({ type: 'highpass', freq: 2500, q: 0.7, peak: 0.8, attack: 0.0004, decay: 0.008 });
+    const base = b.rng.range(500, 650);
+    [1, 2.32, 3.7].forEach((r, i) => {
+      b.tone({ freq: base * r * b.rng.range(0.98, 1.02), peak: 0.4 / (1 + i * 0.6), attack: 0.0008, decay: 0.12 / (1 + i * 0.4) });
+    });
+    for (let i = 0; i < 3; i++) {
+      b.burst({
+        t: b.rng.range(0.02, 0.09), type: 'bandpass', freq: b.rng.range(2500, 5500), q: 1.5,
+        peak: b.rng.range(0.2, 0.4), attack: 0.0003, decay: 0.006,
+      });
+    }
+  },
+};
+
 /** 泥土：低沉的悶聲 + 少量碎土顆粒 */
 const dirtStep: Recipe = {
   duration: 0.4, peak: 0.7, variants: 4,
@@ -387,6 +418,8 @@ export const RECIPES: Record<string, Recipe> = {
   'footsteps.carpet': genericStep(STEP_PARAMS.carpet),
   'footsteps.sand': genericStep(STEP_PARAMS.sand),
   'footsteps.metal': metalStep,
+  'footsteps.metal_hollow': metalHollowStep,
+  'footsteps.metal_grate': metalGrateStep,
   'footsteps.dirt': dirtStep,
   'footsteps.tile': tileStep,
   'weapons.dry_fire': dryFire,

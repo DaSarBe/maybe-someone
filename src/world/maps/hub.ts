@@ -106,7 +106,7 @@ export function buildHub(): GameMap {
   b.boxMinMax('metal', '#1b2140', -2.9, 0, -Z, -2.1, 3.8, -Z + 1.3);
   b.boxMinMax('metal', '#1b2140', 2.1, 0, -Z, 2.9, 3.8, -Z + 1.3);
   b.boxMinMax('metal', '#1b2140', -2.9, 3.8, -Z, 2.9, 4.3, -Z + 1.3);
-  b.boxMinMax('tile', '#2a3150', -2.2, 0.03, -Z + 1.3, 2.2, 0.12, -3.6);
+  b.boxMinMax('metal_grate', '#2a3150', -2.2, 0.03, -Z + 1.3, 2.2, 0.12, -3.6);
   // 角落的木箱（裝飾兼擋路）
   b.boxMinMax('metal', '#26303a', -X, 0, 6.2, -X + 1.8, 1.0, Z);
   b.boxMinMax('metal', '#26303a', X - 1.8, 0, 6.4, X, 1.0, Z);

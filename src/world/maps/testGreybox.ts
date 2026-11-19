@@ -8,6 +8,8 @@ import type { ReverbZone, Surface } from '../Surface';
 const PADS: { surface: Surface; color: string }[] = [
   { surface: 'concrete', color: '#8c8f93' },
   { surface: 'metal', color: '#5f7a8f' },
+  { surface: 'metal_hollow', color: '#4f6f8a' },
+  { surface: 'metal_grate', color: '#8a9aa8' },
   { surface: 'wood', color: '#8d5c2e' },
   { surface: 'grass', color: '#46944a' },
   { surface: 'gravel', color: '#77706a' },
@@ -17,7 +19,7 @@ const PADS: { surface: Surface; color: string }[] = [
   { surface: 'carpet', color: '#8e2f40' },
   { surface: 'sand', color: '#dcc687' },
 ];
-const PAD_W = 8;
+const PAD_W = 7;
 const PAD_Z0 = -28;
 const PAD_Z1 = -20;
 
@@ -52,14 +54,15 @@ export function buildTestGreybox(): GameMap {
   b.boxMinMax('concrete', wallC, 45.2, -1, -29, 46, 4, 32.8);
 
   // 展示列兩端的填充地面
-  b.boxMinMax('concrete', '#6f7378', -45, -0.52, PAD_Z0, -40, -0.02, PAD_Z1);
-  b.boxMinMax('concrete', '#6f7378', 40, -0.52, PAD_Z0, 45, -0.02, PAD_Z1);
+  const padEnd = (PADS.length * PAD_W) / 2;
+  b.boxMinMax('concrete', '#6f7378', -45, -0.52, PAD_Z0, -padEnd, -0.02, PAD_Z1);
+  b.boxMinMax('concrete', '#6f7378', padEnd, -0.52, PAD_Z0, 45, -0.02, PAD_Z1);
 
   // ---- 材質展示列 ----
   const x0 = -(PADS.length * PAD_W) / 2;
   PADS.forEach((p, i) => {
     const xa = x0 + i * PAD_W;
-    const top = p.surface === 'water' ? -0.3 : 0;
+    const top = p.surface === 'water' ? -0.3 : p.surface === 'metal_grate' ? 0.2 : 0; // 格柵為稍微架高的平台
     b.boxMinMax(p.surface, p.color, xa, top - 0.5, PAD_Z0, xa + PAD_W, top, PAD_Z1);
     const sign = makeSign(p.surface, p.color);
     sign.position.set(xa + PAD_W / 2, 2.4, PAD_Z0 + 0.35);
