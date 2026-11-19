@@ -1,0 +1,211 @@
+{
+  "footsteps": {
+    "concrete": [
+      "sounds/footsteps/concrete/01.ogg",
+      "sounds/footsteps/concrete/02.ogg",
+      "sounds/footsteps/concrete/03.ogg",
+      "sounds/footsteps/concrete/04.ogg",
+      "sounds/footsteps/concrete/05.ogg"
+    ],
+    "wood": [
+      "sounds/footsteps/wood/01.ogg",
+      "sounds/footsteps/wood/02.ogg",
+      "sounds/footsteps/wood/03.ogg",
+      "sounds/footsteps/wood/04.ogg",
+      "sounds/footsteps/wood/05.ogg"
+    ],
+    "grass": [
+      "sounds/footsteps/grass/01.ogg",
+      "sounds/footsteps/grass/02.ogg",
+      "sounds/footsteps/grass/03.ogg",
+      "sounds/footsteps/grass/04.ogg",
+      "sounds/footsteps/grass/05.ogg"
+    ],
+    "carpet": [
+      "sounds/footsteps/carpet/01.ogg",
+      "sounds/footsteps/carpet/02.ogg",
+      "sounds/footsteps/carpet/03.ogg",
+      "sounds/footsteps/carpet/04.ogg",
+      "sounds/footsteps/carpet/05.ogg"
+    ]
+  },
+  "weapons": {},
+  "impacts": {
+    "metal": [
+      "sounds/impacts/metal_01.ogg",
+      "sounds/impacts/metal_02.ogg",
+      "sounds/impacts/metal_03.ogg",
+      "sounds/impacts/metal_04.ogg",
+      "sounds/impacts/metal_05.ogg"
+    ],
+    "wood": [
+      "sounds/impacts/wood_01.ogg",
+      "sounds/impacts/wood_02.ogg",
+      "sounds/impacts/wood_03.ogg",
+      "sounds/impacts/wood_04.ogg",
+      "sounds/impacts/wood_05.ogg"
+    ],
+    "flesh": [
+      "sounds/impacts/flesh_01.ogg",
+      "sounds/impacts/flesh_02.ogg",
+      "sounds/impacts/flesh_03.ogg",
+      "sounds/impacts/flesh_04.ogg",
+      "sounds/impacts/flesh_05.ogg"
+    ],
+    "generic": [
+      "sounds/impacts/generic_01.ogg",
+      "sounds/impacts/generic_02.ogg",
+      "sounds/impacts/generic_03.ogg",
+      "sounds/impacts/generic_04.ogg",
+      "sounds/impacts/generic_05.ogg"
+    ]
+  },
+  "ambient": {
+    "machinery_hum": "sounds/ambient/machinery_hum.ogg",
+    "time_rift": "sounds/ambient/time_rift.ogg"
+  },
+  "ui": {
+    "click": [
+      "sounds/ui/click_001.ogg",
+      "sounds/ui/click_002.ogg"
+    ],
+    "select": "sounds/ui/select_001.ogg",
+    "confirm": "sounds/ui/confirmation_001.ogg",
+    "back": "sounds/ui/back_001.ogg",
+    "error": "sounds/ui/error_001.ogg",
+    "open": "sounds/ui/open_001.ogg",
+    "close": "sounds/ui/close_001.ogg",
+    "pickup": "sounds/ui/pluck_001.ogg",
+    "drop": "sounds/ui/drop_001.ogg"
+  },
+  "models": {
+    "enemy_soldier": {
+      "path": "models/enemy_soldier.glb",
+      "animationPrefix": "CharacterArmature|",
+      "animations": [
+        "Idle",
+        "Run",
+        "Run_Gun",
+        "Idle_Shoot",
+        "Duck",
+        "Jump",
+        "Punch",
+        "HitReact",
+        "Death"
+      ]
+    },
+    "enemy_robot_gunner": {
+      "path": "models/enemy_robot_gunner.glb",
+      "animationPrefix": "CharacterArmature|",
+      "animations": [
+        "Idle",
+        "Walk",
+        "Run",
+        "Attack",
+        "Shoot",
+        "Jump",
+        "Death"
+      ]
+    },
+    "npc_worker": {
+      "path": "models/npc_worker.glb",
+      "animationPrefix": "HumanArmature|",
+      "animations": [
+        "Man_Idle",
+        "Man_Walk",
+        "Man_Run",
+        "Man_Death"
+      ]
+    },
+    "prop_crate": {
+      "path": "models/prop_crate.glb",
+      "animations": [
+        "open",
+        "close",
+        "open-close"
+      ]
+    },
+    "prop_barrel": {
+      "path": "models/prop_barrel.glb",
+      "animations": []
+    },
+    "prop_barrels": {
+      "path": "models/prop_barrels.glb",
+      "animations": []
+    },
+    "prop_chest": {
+      "path": "models/prop_chest.glb",
+      "animations": []
+    },
+    "prop_cargo_ship": {
+      "path": "models/prop_cargo_ship.glb",
+      "animations": []
+    },
+    "prop_generator": {
+      "path": "models/prop_generator.glb",
+      "animations": []
+    },
+    "prop_fence": {
+      "path": "models/prop_fence.glb",
+      "animations": []
+    },
+    "bld_hangar": {
+      "path": "models/bld_hangar.glb",
+      "animations": []
+    },
+    "bld_building_a": {
+      "path": "models/bld_building_a.glb",
+      "animations": []
+    },
+    "item_chronite": {
+      "path": "models/item_chronite.glb",
+      "animations": [],
+      "note": "crystal placeholder for Chronite"
+    },
+    "item_grenade": {
+      "path": "models/item_grenade.glb",
+      "animations": []
+    }
+  },
+  "textures": {
+    "concrete": "textures/surface_concrete.png",
+    "metal": "textures/surface_metal.png",
+    "wood": "textures/surface_wood.png",
+    "grass": "textures/surface_grass.png",
+    "gravel": "textures/surface_gravel.png",
+    "dirt": "textures/surface_dirt.png",
+    "plate": "textures/surface_plate.png",
+    "stone": "textures/surface_stone.png",
+    "wall": "textures/surface_wall.png",
+    "bark": "textures/surface_bark.png"
+  },
+  "notes": [
+    "All .glb files use EXT_meshopt_compression (required): load with three.js MeshoptDecoder (three/examples/jsm/libs/meshopt_decoder.module.js) set on GLTFLoader.",
+    "footsteps.concrete/wood/grass/carpet: Kenney Impact Sounds (CC0), 5 variants each.",
+    "impacts.flesh uses impact_soft_medium (soft thud) as an approximation; impacts.generic uses impact_generic_light for concrete and unknown surfaces.",
+    "ambient.machinery_hum is Kenney Sci-fi engine_circular_000 used as an approximate indoor hum; ambient.time_rift is force_field_000.",
+    "textures are 128x128 PS1-style surface textures; tileable status not verified."
+  ],
+  "missing": [
+    "footsteps.metal",
+    "footsteps.gravel",
+    "footsteps.dirt",
+    "footsteps.water",
+    "footsteps.tile",
+    "footsteps.sand",
+    "weapons.pistol_fire",
+    "weapons.rifle_fire",
+    "weapons.dry_fire",
+    "weapons.reload",
+    "weapons.bullet_impact_concrete",
+    "impacts.concrete (generic used instead)",
+    "ambient.harbor_wind",
+    "ambient.indoor_room_tone",
+    "models.pistol",
+    "models.rifle",
+    "models.vase_antique",
+    "models.battery",
+    "models.chip",
+    "models.dock_container_or_warehouse_modular"
+  ]
+}
