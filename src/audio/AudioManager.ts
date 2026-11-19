@@ -5,6 +5,10 @@ import { findReverbZone, type ReverbType, type ReverbZone } from '../world/Surfa
 import { Ambience } from './Ambience';
 import { ReverbSystem, ZONE_PARAMS } from './ReverbZones';
 import { RECIPES, renderBank } from './Synth';
+import {
+  detectPrimingShift, GROUP_CATEGORIES, groupByKey, parseSpriteManifest, pickSpriteFormat, sliceClips, SPRITE_GROUPS,
+  type SpriteFormat, type SpriteGroupId, type SpriteManifest,
+} from './sprites';
 import { SurfaceSounds } from './SurfaceSounds';
 import type { BankSource, PlayOpts, PlayRecord, SoundPlayer } from './types';
 
@@ -32,10 +36,29 @@ interface Voice {
   start: number;
 }
 
-type RawFile = { path: string; data: ArrayBuffer | null; buf?: AudioBuffer };
-
 const ASSET_BASE = import.meta.env.BASE_URL + 'assets/';
-const AUDIO_CATEGORIES = ['footsteps', 'weapons', 'impacts', 'ambient', 'ui'] as const;
+const SPRITE_BASE = ASSET_BASE + 'sprites/';
+/** 解碼用的取樣率：和精靈圖相同，切片時不需要重新取樣。AudioBuffer 在任何取樣率的 AudioContext 都能播（瀏覽器自動重取樣） */
+const DECODE_RATE = 44100;
+/** 同時渲染的合成音庫數（Safari 對同時存在的音訊 context 數量有限制） */
+const SYNTH_CONCURRENCY = 4;
+/** 載入進度的權重（加總 1）：精靈圖三組 + 合成音庫 */
+const PROGRESS_WEIGHTS: Record<string, number> = { p0: 0.35, p1: 0.25, p2: 0.25, synth: 0.15 };
+
+interface Fetched { json: unknown; data: ArrayBuffer; format: SpriteFormat }
+
+/** index.html 的行內腳本在最早的時間點就開始抓 p0 精靈圖，這裡接手 */
+interface SfxPreload {
+  fmt: SpriteFormat;
+  p0: Promise<{ json: unknown; data: ArrayBuffer }>;
+}
+declare global {
+  interface Window { __sfxPreload?: SfxPreload }
+}
+
+/** 頁面（含 JS）載入完成 */
+const pageLoaded = (): Promise<void> =>
+  document.readyState === 'complete' ? Promise.resolve() : new Promise((res) => window.addEventListener('load', () => res(), { once: true }));
 
 /** 音量滑桿 0..1 → 增益（平方曲線，比較貼近聽感） */
 const toGain = (v: number): number => v * v;
@@ -60,14 +83,22 @@ export class AudioManager implements SoundPlayer {
   readonly recent: PlayRecord[] = [];
   lastSound = '-';
   playCount = 0;
+  /** 全部音效（素材與合成）都就緒；個別音庫一就緒就能播，不用等這個 */
   loaded = false;
+  /** 載入進度 0..1 */
+  progress = 0;
+  /** 各階段就緒的時間（performance.now()，毫秒，從頁面開始載入起算） */
+  readonly readyAt: Partial<Record<SpriteGroupId | 'synth' | 'all', number>> = {};
   readonly stats = {
     manifestOk: false,
+    format: '' as SpriteFormat | '',
     filesTotal: 0,
     filesFetched: 0,
     filesDecoded: 0,
     failed: [] as string[],
     synthKeys: [] as string[],
+    /** 各組的載入方式：sprite = 精靈圖；files = 退回逐檔；none = 失敗（改用合成） */
+    groups: {} as Record<string, 'sprite' | 'files' | 'none'>,
   };
 
   private master!: GainNode;
@@ -81,9 +112,10 @@ export class AudioManager implements SoundPlayer {
   private zones: readonly ReverbZone[] = [];
   private zoneType: ReverbType = 'outdoor';
   private surfaceSounds = new SurfaceSounds(this);
-  private fetching: Promise<RawFile[]>;
-  private raw: RawFile[] = [];
+  private decodeCtx: BaseAudioContext;
   private manifestPaths = new Map<string, string[]>();
+  private progressDone = new Set<string>();
+  private progressListeners = new Set<(p: number) => void>();
   private listenerPos = new THREE.Vector3();
   private tmpDir = new THREE.Vector3();
   private tmpUp = new THREE.Vector3();
@@ -91,8 +123,11 @@ export class AudioManager implements SoundPlayer {
 
   constructor(bus: GameBus, private save: SaveService, opts: { eager: boolean }) {
     this.settings = { ...DEFAULT_AUDIO_SETTINGS, ...save.get<Partial<AudioSettings>>(SETTINGS_KEY, {}) };
-    // 素材的下載不需要 AudioContext，先開始；解碼等第一次使用者操作後
-    this.fetching = this.fetchAssets();
+    // 下載、解碼與合成都不需要（正式的）AudioContext：用離線 context 在使用者操作之前就全部做完，
+    // 第一次操作時只需要建立並 resume AudioContext、接上 graph
+    const OAC = window.OfflineAudioContext ?? (window as unknown as { webkitOfflineAudioContext: typeof OfflineAudioContext }).webkitOfflineAudioContext;
+    this.decodeCtx = new OAC(1, 1, DECODE_RATE);
+    void this.loadAll();
 
     bus.on('footstep', (e) => this.surfaceSounds.footstep(e.surface, e.intensity, e.position));
     bus.on('land', (e) => this.surfaceSounds.land(e.surface, e.fallSpeed));
@@ -114,7 +149,7 @@ export class AudioManager implements SoundPlayer {
   }
 
   // ------------------------------------------------------------ 啟動
-  /** 第一次使用者操作時呼叫：建立（或 resume）AudioContext，開始解碼素材 */
+  /** 第一次使用者操作時呼叫：建立（或 resume）AudioContext 並接上 graph（素材早就在背景載入了） */
   unlock(): void {
     if (!this.ctx) {
       try {
@@ -125,7 +160,6 @@ export class AudioManager implements SoundPlayer {
         return;
       }
       this.buildGraph(this.ctx);
-      void this.prepare();
     }
     if (this.ctx.state !== 'running') void this.ctx.resume().catch(() => {});
     if (this.ctx.state === 'running') {
@@ -152,91 +186,218 @@ export class AudioManager implements SoundPlayer {
     this.reverb = new ReverbSystem(ctx, this.sfxGroup);
     this.reverb.setListenerZone(this.zoneType, true);
     this.ambience = new Ambience(ctx, this.ambientGroup, (key) => this.banks.get(key)?.buffers[0] ?? null);
+    this.ambience.refresh(this.zoneType);
   }
 
   // ------------------------------------------------------------ 素材載入
-  private async fetchAssets(): Promise<RawFile[]> {
-    let manifest: Record<string, Record<string, string | string[]>> | null = null;
+  /** 訂閱載入進度（0..1）；回傳取消訂閱函式 */
+  onProgress(fn: (p: number) => void): () => void {
+    this.progressListeners.add(fn);
+    return () => this.progressListeners.delete(fn);
+  }
+
+  private markDone(id: string): void {
+    this.progressDone.add(id);
+    let p = 0;
+    for (const k of this.progressDone) p += PROGRESS_WEIGHTS[k] ?? 0;
+    this.progress = Math.min(1, p);
+    for (const fn of this.progressListeners) fn(this.progress);
+  }
+
+  /**
+   * 載入全部音效。精靈圖依 p0 → p1 → p2 的順序下載（下載一組的同時解碼上一組），
+   * 每一組解碼完就立刻上線；合成音庫（只算沒有素材的）同時在背景並行計算。
+   */
+  private async loadAll(): Promise<void> {
+    try {
+      const manifestP = this.fetchManifest();
+      const format = window.__sfxPreload?.fmt ?? pickSpriteFormat((t) => new Audio().canPlayType(t));
+      this.stats.format = format;
+
+      // manifest 一回來就開始合成缺少素材的音庫，不擋素材
+      const synthEarly = manifestP.then((ok) => (ok ? this.renderSynth(Object.keys(RECIPES).filter((k) => !this.manifestPaths.has(k))) : undefined));
+
+      // 依優先順序下載：前一組下載完才開始下一組，避免擠掉 p0 的頻寬；
+      // p1 之後還要等頁面（JS 與 three.js）載入完成，不跟遊戲本體搶頻寬
+      const fetches = new Map<SpriteGroupId, Promise<Fetched>>();
+      let chain: Promise<unknown> = Promise.resolve();
+      for (const g of SPRITE_GROUPS) {
+        const p = chain.then(() => (g === 'p0' ? undefined : pageLoaded())).then(() => this.fetchSprite(g, format, true));
+        p.catch(() => {});
+        chain = p.catch(() => {});
+        fetches.set(g, p);
+      }
+
+      for (const g of SPRITE_GROUPS) {
+        try {
+          await this.installSprite(g, format, await fetches.get(g)!);
+          this.stats.groups[g] = 'sprite';
+        } catch (err) {
+          console.warn(`[audio] sprite ${g} failed, falling back to individual files`, err);
+          try {
+            await this.loadGroupFiles(g, manifestP);
+            this.stats.groups[g] = 'files';
+          } catch (err2) {
+            console.warn(`[audio] files for ${g} failed, using synthesized sounds`, err2);
+            this.stats.groups[g] = 'none';
+          }
+        }
+        this.readyAt[g] = performance.now();
+        this.markDone(g);
+      }
+
+      await synthEarly;
+      // 補漏：素材全部失敗的音庫改用合成
+      await this.renderSynth(Object.keys(RECIPES).filter((k) => !this.banks.has(k)));
+    } catch (err) {
+      console.warn('[audio] loading failed', err);
+    }
+    this.readyAt.synth = performance.now();
+    this.markDone('synth');
+    this.loaded = true;
+    this.readyAt.all = performance.now();
+  }
+
+  private async fetchManifest(): Promise<boolean> {
     try {
       const res = await fetch(ASSET_BASE + 'manifest.json');
       if (!res.ok) throw new Error(`manifest HTTP ${res.status}`);
-      manifest = await res.json();
+      const manifest = (await res.json()) as Record<string, Record<string, string | string[]>>;
+      for (const cats of Object.values(GROUP_CATEGORIES)) {
+        for (const cat of cats) {
+          const group = manifest[cat];
+          if (!group || typeof group !== 'object') continue;
+          for (const [name, v] of Object.entries(group)) {
+            const paths = (Array.isArray(v) ? v : [v]).filter((p): p is string => typeof p === 'string');
+            this.manifestPaths.set(`${cat}.${name}`, paths);
+            this.stats.filesTotal += paths.length;
+          }
+        }
+      }
       this.stats.manifestOk = true;
+      return true;
     } catch (err) {
-      console.warn('[audio] manifest unavailable, falling back to synthesized sounds', err);
-      return [];
+      console.warn('[audio] manifest unavailable', err);
+      return false;
     }
-    const files: RawFile[] = [];
-    for (const cat of AUDIO_CATEGORIES) {
-      const group = manifest?.[cat];
-      if (!group || typeof group !== 'object') continue;
-      for (const [name, v] of Object.entries(group)) {
-        const paths = (Array.isArray(v) ? v : [v]).filter((p): p is string => typeof p === 'string');
-        this.manifestPaths.set(`${cat}.${name}`, paths);
-        for (const path of paths) files.push({ path, data: null });
+  }
+
+  private async fetchSprite(group: SpriteGroupId, format: SpriteFormat, allowPreload: boolean): Promise<Fetched> {
+    const pre = window.__sfxPreload;
+    if (allowPreload && group === 'p0' && pre && pre.fmt === format) {
+      try {
+        const r = await pre.p0;
+        this.stats.filesFetched += 1;
+        return { ...r, format };
+      } catch { /* 預載失敗：重新抓一次 */ }
+    }
+    const [jr, dr] = await Promise.all([fetch(`${SPRITE_BASE}${group}.json`), fetch(`${SPRITE_BASE}${group}.${format}`)]);
+    if (!jr.ok || !dr.ok) throw new Error(`sprite ${group} HTTP ${jr.status}/${dr.status}`);
+    this.stats.filesFetched += 1;
+    return { json: await jr.json(), data: await dr.arrayBuffer(), format };
+  }
+
+  /** 解碼精靈圖並切成片段上線。解碼失敗就換另一種格式再試一次 */
+  private async installSprite(group: SpriteGroupId, format: SpriteFormat, first: Fetched): Promise<void> {
+    const alt: SpriteFormat = format === 'ogg' ? 'm4a' : 'ogg';
+    let fetched: Fetched = first;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await this.decodeAndInstall(group, fetched);
+        this.stats.format = fetched.format;
+        return;
+      } catch (err) {
+        if (attempt > 0) throw err;
+        console.warn(`[audio] sprite ${group}.${fetched.format} unusable, trying ${alt}`, err);
+        fetched = await this.fetchSprite(group, alt, false);
       }
     }
-    this.stats.filesTotal = files.length;
-    // 並行下載（限制同時連線數，避免手機網路壅塞）
+  }
+
+  private async decodeAndInstall(group: SpriteGroupId, f: Fetched): Promise<void> {
+    const manifest: SpriteManifest = parseSpriteManifest(f.json);
+    const decoded = await this.decodeCtx.decodeAudioData(f.data);
+    this.stats.filesDecoded += 1;
+    if (decoded.sampleRate !== manifest.sampleRate) throw new Error(`sprite ${group}: unexpected sample rate ${decoded.sampleRate}`);
+    const channelData = Array.from({ length: decoded.numberOfChannels }, (_, c) => decoded.getChannelData(c));
+    const shift = detectPrimingShift(f.format, manifest, decoded.length);
+    const clips = sliceClips(manifest, f.format, channelData, shift);
+    if (clips.length < manifest.clips.length) throw new Error(`sprite ${group}: ${manifest.clips.length - clips.length} clips out of range`);
+    for (const [key, list] of groupByKey(clips)) {
+      const buffers = list.map((c) => {
+        const buf = this.decodeCtx.createBuffer(c.channels, c.data[0].length, manifest.sampleRate);
+        c.data.forEach((d, ch) => buf.copyToChannel(d as Float32Array<ArrayBuffer>, ch));
+        return buf;
+      });
+      this.installBank(key, buffers, list.map((c) => c.path), 'asset');
+    }
+    this.afterInstall(group);
+  }
+
+  /** 精靈圖失敗時的退路：逐檔下載、解碼（有限並行） */
+  private async loadGroupFiles(group: SpriteGroupId, manifestP: Promise<boolean>): Promise<void> {
+    if (!(await manifestP)) throw new Error('no manifest');
+    const cats = GROUP_CATEGORIES[group];
+    const keys = [...this.manifestPaths.keys()].filter((k) => cats.includes(k.split('.')[0]));
+    const jobs = keys.flatMap((key) => this.manifestPaths.get(key)!.map((path, i) => ({ key, path, i })));
+    const results = new Map<string, (AudioBuffer | null)[]>(keys.map((k) => [k, []]));
     let next = 0;
     const worker = async () => {
-      while (next < files.length) {
-        const f = files[next++];
+      while (next < jobs.length) {
+        const j = jobs[next++];
+        let buf: AudioBuffer | null = null;
         try {
-          const res = await fetch(ASSET_BASE + f.path);
+          const res = await fetch(ASSET_BASE + j.path);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          f.data = await res.arrayBuffer();
           this.stats.filesFetched++;
+          buf = await this.decodeCtx.decodeAudioData(await res.arrayBuffer());
+          this.stats.filesDecoded++;
         } catch (err) {
-          this.stats.failed.push(f.path);
-          console.warn(`[audio] failed to load ${f.path}`, err);
+          this.stats.failed.push(j.path);
+          console.warn(`[audio] failed to load ${j.path}`, err);
         }
+        results.get(j.key)![j.i] = buf;
       }
     };
     await Promise.all(Array.from({ length: 6 }, worker));
-    return files;
+    let any = false;
+    for (const [key, bufs] of results) {
+      const paths = this.manifestPaths.get(key)!;
+      const ok = paths.map((p, i) => ({ p, b: bufs[i] })).filter((x): x is { p: string; b: AudioBuffer } => !!x.b);
+      if (ok.length) { this.installBank(key, ok.map((x) => x.b), ok.map((x) => x.p), 'asset'); any = true; }
+    }
+    if (!any) throw new Error('no files decoded');
+    this.afterInstall(group);
   }
 
-  private async prepare(): Promise<void> {
-    const ctx = this.ctx!;
-    this.raw = await this.fetching;
-    const byPath = new Map(this.raw.map((f) => [f.path, f]));
+  private installBank(key: string, buffers: AudioBuffer[], names: string[], source: BankSource): void {
+    this.banks.set(key, { buffers, names, source });
+  }
 
-    // 解碼素材
-    await Promise.all(
-      [...byPath.values()].map(async (f) => {
-        if (!f.data) return;
+  private afterInstall(group: SpriteGroupId): void {
+    // 環境音在 p2 載入完成後才開始（淡入）
+    if (group === 'p2') this.ambience?.refresh(this.zoneType);
+  }
+
+  /** 並行合成指定的音庫（跳過已經有素材的） */
+  private async renderSynth(keys: string[]): Promise<void> {
+    let next = 0;
+    const worker = async () => {
+      while (next < keys.length) {
+        const key = keys[next++];
+        if (this.banks.has(key)) continue;
         try {
-          const buf = await ctx.decodeAudioData(f.data);
-          f.buf = buf;
-          this.stats.filesDecoded++;
+          const buffers = await renderBank(key, DECODE_RATE);
+          if (this.banks.has(key)) continue;
+          this.installBank(key, buffers, buffers.map((_, i) => `synth:${key}#${i}`), 'synth');
+          this.stats.synthKeys.push(key);
+          if (key.startsWith('ambient.')) this.ambience?.refresh(this.zoneType);
         } catch (err) {
-          this.stats.failed.push(f.path);
-          console.warn(`[audio] failed to decode ${f.path}`, err);
+          console.warn(`[audio] synth failed for ${key}`, err);
         }
-      }),
-    );
-    for (const [key, paths] of this.manifestPaths) {
-      const ok = paths
-        .map((p) => ({ p, buf: byPath.get(p)?.buf }))
-        .filter((x): x is { p: string; buf: AudioBuffer } => !!x.buf);
-      if (ok.length) this.banks.set(key, { buffers: ok.map((x) => x.buf), names: ok.map((x) => x.p), source: 'asset' });
-    }
-
-    // 沒有素材的音庫改用合成
-    for (const key of Object.keys(RECIPES)) {
-      if (this.banks.has(key)) continue;
-      try {
-        const buffers = await renderBank(key, ctx.sampleRate);
-        this.banks.set(key, { buffers, names: buffers.map((_, i) => `synth:${key}#${i}`), source: 'synth' });
-        this.stats.synthKeys.push(key);
-      } catch (err) {
-        console.warn(`[audio] synth failed for ${key}`, err);
       }
-    }
-
-    this.loaded = true;
-    this.ambience?.setZone(this.zoneType);
+    };
+    await Promise.all(Array.from({ length: Math.min(SYNTH_CONCURRENCY, keys.length) }, worker));
   }
 
   // ------------------------------------------------------------ 公開 API
@@ -319,13 +480,13 @@ export class AudioManager implements SoundPlayer {
   private setListenerZone(type: ReverbType): void {
     this.zoneType = type;
     this.reverb?.setListenerZone(type);
-    if (this.loaded) this.ambience?.setZone(type);
+    this.ambience?.setZone(type);
   }
 
   // ------------------------------------------------------------ 播放
   play(o: PlayOpts): void {
     const ctx = this.ctx;
-    if (!ctx || !this.loaded || ctx.state !== 'running' || !this.reverb) return;
+    if (!ctx || ctx.state !== 'running' || !this.reverb) return;
     const bank = this.banks.get(o.key);
     if (!bank || bank.buffers.length === 0) return;
 
@@ -452,6 +613,8 @@ export class AudioManager implements SoundPlayer {
       state: this.state,
       sampleRate: this.ctx?.sampleRate ?? 0,
       loaded: this.loaded,
+      progress: this.progress,
+      readyAt: this.readyAt,
       stats: this.stats,
       banks,
       voices: this.voices.length,

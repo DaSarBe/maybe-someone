@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { EventBus, type GameBus, type GameEvents } from './EventBus';
 import { Input } from './Input';
 import { AudioManager } from '../audio/AudioManager';
+import { AudioLoadBadge } from '../ui/AudioLoadBadge';
 import { LocalSaveService, type SaveService } from '../save/SaveService';
 import { EconomyService } from '../economy/EconomyService';
 
@@ -61,6 +62,10 @@ export class Game {
   constructor(readonly container: HTMLElement, opts: GameOptions) {
     this.debug = opts.debug;
     this.isTouch = detectTouch(opts.forceTouch);
+    // 音效最先建立：下載、解碼、合成立刻在背景開始，不等 three.js 場景；
+    // debug 模式（自動化測試）立刻建立 AudioContext；一般模式等第一次使用者操作
+    this.audio = new AudioManager(this.bus, this.save, { eager: this.debug && !opts.lazyAudio });
+    new AudioLoadBadge(container, this.audio);
     this.renderer = new THREE.WebGLRenderer({
       antialias: !this.isTouch,
       powerPreference: 'high-performance',
@@ -70,8 +75,6 @@ export class Game {
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     container.appendChild(this.canvas);
     this.input = new Input(this.canvas, { touch: this.isTouch, debug: this.debug });
-    // debug 模式（自動化測試）立刻建立 AudioContext；一般模式等第一次使用者操作
-    this.audio = new AudioManager(this.bus, this.save, { eager: this.debug && !opts.lazyAudio });
 
     window.addEventListener('resize', () => this.resize());
     window.visualViewport?.addEventListener('resize', () => this.resize());

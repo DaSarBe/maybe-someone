@@ -46,6 +46,19 @@
 - **美術**：Low Poly，CC0 素材（來源記在 `public/assets/CREDITS.md`）
 - **網頁 UI**：純 DOM + CSS 覆蓋在 canvas 上（HUD、選單），不使用框架
 
+### 音效載入與音效精靈圖（audio sprite）
+- `public/assets/sounds/` 是素材原檔（對應 CREDITS）；`manifest.json` 是唯一的素材清單。**執行時讀的是 `public/assets/sprites/`**：
+  `scripts/build-audio-sprites.mjs` 依 manifest 把音檔依優先順序串成三組（p0 腳步與介面、p1 武器與命中與特效、p2 環境音），
+  每段之間留 50ms 靜音，輸出 `<group>.ogg`（Vorbis）、`<group>.m4a`（AAC）與 `<group>.json`（每個片段的 key、index、offset、duration）。
+- **改動音效素材（或 manifest）後必須執行 `npm run build:audio`（需要 ffmpeg），並把 `public/assets/sprites/` 一起 commit**（GitHub Actions 不一定有 ffmpeg）。
+  有單元測試檢查 sprite 與 manifest 是否一致。
+- 載入流程：`index.html` 最早就開始抓 p0；`AudioManager` 在建立時就用 `OfflineAudioContext` 解碼並切成獨立的 AudioBuffer，
+  不等第一次使用者操作；每一組解碼完就立刻上線（p0 → p1 → p2，p1 之後等頁面載入完成才下載）。環境音在 p2 就緒後淡入。
+  合成音庫只針對 manifest 沒有素材的 key，並行計算。第一次操作時只需建立並 resume AudioContext。
+- 格式：`canPlayType('audio/ogg; codecs="vorbis"')` 為空（舊版 iOS Safari）就用 m4a；解碼失敗會換另一種格式。
+  AAC 的 priming 靜音：build 時量測（json 的 `formats.m4a.lag` / `priming`），執行時再依解碼長度判斷瀏覽器有沒有自動去掉。
+- 失敗退路：精靈圖失敗 → 逐檔載入（manifest）→ 程式合成。進度顯示在畫面上方的「音效載入中 xx%」，完成後消失，不擋住遊戲。
+
 ### 目錄結構
 ```
 src/
@@ -61,7 +74,7 @@ src/
   save/                   SaveService 介面 + LocalSaveService（第二階段改成 ServerSaveService）
   ui/                     HUD、Hub 選單、背包介面
   data/                   items.ts、weapons.ts、eras.ts（純資料）
-public/assets/            models/ sounds/ textures/ + CREDITS.md + manifest.json
+public/assets/            models/ sounds/ sprites/ textures/ + CREDITS.md + manifest.json
 ```
 
 ### 重要約定

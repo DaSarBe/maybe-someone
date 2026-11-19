@@ -10,6 +10,22 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#0b0f14" />
     <title>時晶行動 Chrono Raid</title>
+    <!-- 最早的時間點就開始抓 p0 音效精靈圖（腳步、介面），不等 JS 與 three.js；AudioManager 會接手。
+         格式：支援 Vorbis 用 ogg，否則（舊版 iOS Safari）用 m4a。 -->
+    <script>
+      (function () {
+        try {
+          var a = document.createElement('audio');
+          var fmt = a.canPlayType && a.canPlayType('audio/ogg; codecs="vorbis"') ? 'ogg' : 'm4a';
+          var base = '%BASE_URL%assets/sprites/p0';
+          var p0 = Promise.all([fetch(base + '.json', { priority: 'low' }).then(function (r) { if (!r.ok) throw 0; return r.json(); }),
+            fetch(base + '.' + fmt, { priority: 'low' }).then(function (r) { if (!r.ok) throw 0; return r.arrayBuffer(); })])
+            .then(function (v) { return { json: v[0], data: v[1] }; });
+          p0.catch(function () {});
+          window.__sfxPreload = { fmt: fmt, p0: p0 };
+        } catch (e) { /* AudioManager 會自己抓 */ }
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

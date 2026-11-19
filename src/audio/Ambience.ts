@@ -62,6 +62,12 @@ export class Ambience {
     }
   }
 
+  /** 重新套用目前區域：環境音素材晚於 AudioContext 上線時，讓缺少的層淡入 */
+  refresh(zone: ReverbType, instant = false): void {
+    this.zone = null;
+    this.setZone(zone, instant);
+  }
+
   private layerId(s: LayerSpec): string {
     return `${s.key}@${s.rate ?? 1}/${s.lowpass ?? 0}`;
   }
