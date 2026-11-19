@@ -5,6 +5,9 @@ export interface DebugInfo {
   zone: string;
   moveState: string;
   position: string;
+  /** 最後播放的音效與 AudioContext 狀態 */
+  sound: string;
+  audioState: string;
 }
 
 /** 除錯 HUD：FPS、腳下材質、回音區、移動狀態；底部捲動顯示 footstep / land 事件 */
@@ -25,6 +28,9 @@ export class DebugHud {
       bus.on('footstep', (e) => this.push(`step ${e.surface} (${e.intensity})`)),
       bus.on('land', (e) => this.push(`LAND ${e.surface} v=${e.fallSpeed.toFixed(1)}`)),
       bus.on('reverbZoneChanged', (e) => this.push(`zone -> ${e.type}`)),
+      bus.on('shot', (e) => this.push(`SHOT ${e.weaponId}`)),
+      bus.on('impact', (e) => this.push(`impact ${e.surface}`)),
+      bus.on('weaponAction', (e) => this.push(`${e.action} ${e.weaponId}`)),
     );
   }
 
@@ -44,7 +50,9 @@ export class DebugHud {
         `surface ${info.surface}\n` +
         `zone    ${info.zone}\n` +
         `state   ${info.moveState}\n` +
-        `pos     ${info.position}`;
+        `pos     ${info.position}\n` +
+        `audio   ${info.audioState}\n` +
+        `sound   ${info.sound}`;
     }
   }
 

@@ -8,6 +8,12 @@ export interface GameEvents {
   footstep: { surface: Surface; intensity: StepIntensity; position: THREE.Vector3 };
   land: { surface: Surface; fallSpeed: number };
   reverbZoneChanged: { type: ReverbType; zone: ReverbZone | null };
+  /** 任何人開槍（玩家、AI、其他玩家）。position 為槍口世界座標 */
+  shot: { weaponId: string; position: THREE.Vector3; direction?: THREE.Vector3 };
+  /** 子彈命中。surface 為命中物的材質 */
+  impact: { surface: Surface; position: THREE.Vector3; normal?: THREE.Vector3 };
+  /** 槍械的其他聲音：換彈、空槍 */
+  weaponAction: { weaponId: string; action: 'reload' | 'dry_fire'; position: THREE.Vector3 };
 }
 
 type Handler<P> = (payload: P) => void;

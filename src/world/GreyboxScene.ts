@@ -4,7 +4,8 @@ import type { Game, Scene } from '../core/Game';
 import { PlayerController } from '../player/PlayerController';
 import { MobileControls } from '../player/MobileControls';
 import { DebugHud } from '../ui/DebugHud';
-import { PointerLockOverlay } from '../ui/PointerLockOverlay';
+import { PauseMenu } from '../ui/PauseMenu';
+import { TestFire } from '../combat/TestFire';
 import { setupLighting } from './Lighting';
 import { buildTestGreybox } from './maps/testGreybox';
 import { findReverbZone, type ReverbType, type ReverbZone } from './Surface';
@@ -18,7 +19,8 @@ export class GreyboxScene implements Scene {
   map!: GameMap;
   private game!: Game;
   private hud: DebugHud | null = null;
-  private overlay: PointerLockOverlay | null = null;
+  private menu: PauseMenu | null = null;
+  private fire: TestFire | null = null;
   private zone: ReverbZone | null = null;
   private zoneType: ReverbType = 'outdoor';
   private tmp = new THREE.Vector3();
@@ -43,12 +45,16 @@ export class GreyboxScene implements Scene {
 
     if (this.opts.showHud) this.hud = new DebugHud(game.container, game.bus, touch);
     if (touch) new MobileControls(game.container, game.input);
-    else if (!game.debug) this.overlay = new PointerLockOverlay(game.container, game.input);
+    this.menu = new PauseMenu(game.container, game.input, game.audio, { touch, debug: game.debug });
+
+    game.audio.setZones(this.map.reverbZones);
+    this.fire = new TestFire(game.bus, game.input, this.camera, this.map.surfaceMeshes);
   }
 
   exit(): void {
     this.hud?.dispose();
-    this.overlay?.dispose();
+    this.menu?.dispose();
+    this.fire?.dispose();
   }
 
   resize(w: number, h: number): void {
@@ -72,6 +78,8 @@ export class GreyboxScene implements Scene {
 
   render(alpha: number, frameDt: number): void {
     this.player.updateCamera(alpha, frameDt);
+    this.fire?.update(frameDt);
+    this.game.audio.updateListener(this.camera);
     const s = this.player.state;
     const pos = this.player.position;
     this.hud?.update(frameDt, {
@@ -79,6 +87,8 @@ export class GreyboxScene implements Scene {
       zone: this.zone?.name ? `${this.zoneType} (${this.zone.name})` : this.zoneType,
       moveState: !s.grounded ? 'air' : s.crouching ? (s.moving ? 'crouch-walk' : 'crouch') : s.sprinting && s.moving ? 'sprint' : s.moving ? 'walk' : 'idle',
       position: `${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}`,
+      sound: this.game.audio.lastSound,
+      audioState: `${this.game.audio.state} voices=${this.game.audio.voiceCount}`,
     });
     this.game.renderer.render(this.scene, this.camera);
   }

@@ -8,6 +8,7 @@ const container = document.getElementById('app') as HTMLElement;
 const game = new Game(container, {
   debug: params.has('debug'),
   forceTouch: params.get('touch') === '1',
+  lazyAudio: params.get('lazyaudio') === '1',
 });
 
 if (params.has('debug')) {

@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { EventBus, type GameBus, type GameEvents } from './EventBus';
 import { Input } from './Input';
+import { AudioManager } from '../audio/AudioManager';
+import { LocalSaveService, type SaveService } from '../save/SaveService';
 
 export interface Scene {
   enter(game: Game): void;
@@ -15,6 +17,8 @@ export interface Scene {
 export interface GameOptions {
   debug: boolean;
   forceTouch: boolean;
+  /** 測試用：debug 模式下仍等第一次使用者操作才建立 AudioContext */
+  lazyAudio?: boolean;
 }
 
 export const FIXED_DT = 1 / 120;
@@ -31,6 +35,8 @@ export class Game {
   readonly canvas: HTMLCanvasElement;
   readonly bus: GameBus = new EventBus<GameEvents>();
   readonly input: Input;
+  readonly save: SaveService = new LocalSaveService();
+  readonly audio: AudioManager;
   readonly isTouch: boolean;
   readonly debug: boolean;
   scene: Scene | null = null;
@@ -53,6 +59,8 @@ export class Game {
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     container.appendChild(this.canvas);
     this.input = new Input(this.canvas, { touch: this.isTouch, debug: this.debug });
+    // debug 模式（自動化測試）立刻建立 AudioContext；一般模式等第一次使用者操作
+    this.audio = new AudioManager(this.bus, this.save, { eager: this.debug && !opts.lazyAudio });
 
     window.addEventListener('resize', () => this.resize());
     window.visualViewport?.addEventListener('resize', () => this.resize());
