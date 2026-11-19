@@ -4,6 +4,7 @@ import { Octree } from 'three/examples/jsm/math/Octree.js';
 import type { Input } from '../core/Input';
 import type { GameBus, StepIntensity } from '../core/EventBus';
 import { getSurfaceAt, type Surface, DEFAULT_SURFACE } from '../world/Surface';
+import { canSprintAtWeight, weightSpeedFactor } from '../items/Inventory';
 
 // ---- 參數（公尺 / 秒）----
 const RADIUS = 0.35;
@@ -51,6 +52,8 @@ export class PlayerController {
   private bobPhase = 0;
   private bobAmp = 0;
   private raycaster = new THREE.Raycaster();
+  private weightProvider: (() => number) | null = null;
+  private weightTimer = 0;
 
   // 暫存物件，避免每幀配置
   private tmpV = new THREE.Vector3();
@@ -72,6 +75,14 @@ export class PlayerController {
     this.camera = camera;
     this.camera.rotation.order = 'YXZ';
   }
+
+  /** 負重比例來源（EconomyService.getWeightRatio）：80% 開始變慢，100% 不能衝刺 */
+  setWeightProvider(fn: (() => number) | null): void {
+    this.weightProvider = fn;
+  }
+
+  /** 目前負重比例（供 HUD） */
+  weightRatio = 0;
 
   setWorld(octree: Octree, surfaceMeshes: THREE.Object3D[]): void {
     this.octree = octree;
@@ -118,8 +129,13 @@ export class PlayerController {
     // 目標水平速度
     const mv = input.getMove(this.tmpMove);
     const mag = mv.length();
-    st.sprinting = input.isDown('sprint') && !st.crouching && mv.y > 0.3;
-    const maxSpeed = st.crouching ? CROUCH_SPEED : st.sprinting ? SPRINT_SPEED : WALK_SPEED;
+    this.weightTimer -= dt;
+    if (this.weightTimer <= 0) {
+      this.weightTimer = 0.25;
+      this.weightRatio = this.weightProvider ? this.weightProvider() : 0;
+    }
+    st.sprinting = input.isDown('sprint') && !st.crouching && mv.y > 0.3 && canSprintAtWeight(this.weightRatio);
+    const maxSpeed = (st.crouching ? CROUCH_SPEED : st.sprinting ? SPRINT_SPEED : WALK_SPEED) * weightSpeedFactor(this.weightRatio);
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
     // forward = (-sin, -cos)；right = (cos, -sin)
     const wx = (-sin * mv.y + cos * mv.x) * maxSpeed;

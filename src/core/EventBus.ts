@@ -14,6 +14,12 @@ export interface GameEvents {
   impact: { surface: Surface; position: THREE.Vector3; normal?: THREE.Vector3 };
   /** 槍械的其他聲音：換彈、空槍 */
   weaponAction: { weaponId: string; action: 'reload' | 'dry_fire'; position: THREE.Vector3 };
+  /** 撿起物品（AudioManager 播放 ui pickup） */
+  itemPicked: { itemId: string; qty: number };
+  /** 時空穩定度（Raid 倒數）每秒更新；remaining 為剩餘秒數 */
+  stabilityChanged: { remaining: number; total: number };
+  /** Raid 結束 */
+  raidEnded: { outcome: 'extract' | 'death' };
 }
 
 type Handler<P> = (payload: P) => void;

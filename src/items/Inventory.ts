@@ -1,0 +1,236 @@
+import { getItem } from '../data/items';
+
+/** 物品堆疊。可序列化（直接放進存檔） */
+export interface ItemStack {
+  id: string;
+  qty: number;
+  /** 護甲的剩餘耐久；省略代表全新 */
+  dur?: number;
+}
+export type Slot = ItemStack | null;
+
+export interface InventoryOpts {
+  /** 格數 */
+  capacity: number;
+  /** 負重上限（kg）；省略代表不限（倉庫） */
+  maxWeight?: number;
+  /** 不在格子裡但算進負重的重量（身上穿戴的裝備） */
+  extraWeight?: number;
+}
+
+/** 超過 maxWeight 這個倍率就不能再撿 */
+export const HARD_WEIGHT_CAP = 1.25;
+
+export type MoveResult = { ok: true; moved: number } | { ok: false; reason: 'empty' | 'full' | 'invalid' | 'mismatch' };
+
+/**
+ * 格數 + 重量的背包。直接操作傳入的 slots 陣列（就地修改），
+ * 所以可以把存檔裡的陣列包起來操作。不做俄羅斯方塊式格子（手機不好操作）。
+ */
+export class Inventory {
+  readonly capacity: number;
+  readonly maxWeight: number;
+  extraWeight: number;
+
+  constructor(public readonly slots: Slot[], opts: InventoryOpts) {
+    this.capacity = opts.capacity;
+    this.maxWeight = opts.maxWeight ?? Infinity;
+    this.extraWeight = opts.extraWeight ?? 0;
+    while (slots.length < this.capacity) slots.push(null);
+  }
+
+  /** 已使用的格數 */
+  get used(): number {
+    return this.slots.reduce((n, s) => n + (s ? 1 : 0), 0);
+  }
+
+  get free(): number {
+    return Math.max(0, this.capacity - this.used);
+  }
+
+  /** 格子內物品的重量 */
+  get slotWeight(): number {
+    return this.slots.reduce((w, s) => w + (s ? stackWeight(s) : 0), 0);
+  }
+
+  get totalWeight(): number {
+    return this.slotWeight + this.extraWeight;
+  }
+
+  /** 負重比例：0 = 空；1 = 到達上限；超過 1 就是超重 */
+  getWeightRatio(): number {
+    return Number.isFinite(this.maxWeight) && this.maxWeight > 0 ? this.totalWeight / this.maxWeight : 0;
+  }
+
+  count(id: string): number {
+    return this.slots.reduce((n, s) => n + (s && s.id === id ? s.qty : 0), 0);
+  }
+
+  firstEmpty(): number {
+    for (let i = 0; i < this.capacity; i++) if (!this.slots[i]) return i;
+    return -1;
+  }
+
+  /** 以格數與重量上限計算：最多還能放進幾個這種物品 */
+  maxAddable(id: string, want: number): number {
+    const def = getItem(id);
+    if (!def || want <= 0) return 0;
+    // 格數空間：現有未滿的堆疊 + 空格
+    let room = 0;
+    for (let i = 0; i < this.capacity; i++) {
+      const s = this.slots[i];
+      if (!s) room += def.maxStack;
+      else if (s.id === id && s.dur === undefined) room += def.maxStack - s.qty;
+    }
+    let n = Math.min(want, room);
+    if (Number.isFinite(this.maxWeight) && def.weight > 0) {
+      const spare = this.maxWeight * HARD_WEIGHT_CAP - this.totalWeight;
+      n = Math.min(n, Math.max(0, Math.floor(spare / def.weight + 1e-9)));
+    }
+    return n;
+  }
+
+  canFit(id: string, qty: number): boolean {
+    return this.maxAddable(id, qty) >= qty;
+  }
+
+  /** 加入物品：先補滿既有堆疊，再用空格。回傳放不下的剩餘數量 */
+  add(id: string, qty: number, dur?: number): number {
+    const def = getItem(id);
+    if (!def || qty <= 0) return qty;
+    let left = Math.min(qty, this.maxAddable(id, qty));
+    const rejected = qty - left;
+    if (dur === undefined) {
+      for (const s of this.slots) {
+        if (left <= 0) break;
+        if (s && s.id === id && s.dur === undefined && s.qty < def.maxStack) {
+          const n = Math.min(left, def.maxStack - s.qty);
+          s.qty += n;
+          left -= n;
+        }
+      }
+    }
+    while (left > 0) {
+      const i = this.firstEmpty();
+      if (i < 0) break;
+      const n = Math.min(left, def.maxStack);
+      this.slots[i] = dur === undefined ? { id, qty: n } : { id, qty: n, dur };
+      left -= n;
+    }
+    return rejected + left;
+  }
+
+  addStack(s: ItemStack): number {
+    return this.add(s.id, s.qty, s.dur);
+  }
+
+  /** 無視格數與重量上限的加入（撤離結算時倉庫溢出用）：放不下就在尾端增加格子 */
+  forceAdd(id: string, qty: number, dur?: number): void {
+    const def = getItem(id);
+    if (!def) return;
+    let left = qty;
+    if (dur === undefined) {
+      for (const s of this.slots) {
+        if (left <= 0) break;
+        if (s && s.id === id && s.dur === undefined && s.qty < def.maxStack) {
+          const n = Math.min(left, def.maxStack - s.qty);
+          s.qty += n;
+          left -= n;
+        }
+      }
+    }
+    while (left > 0) {
+      const n = Math.min(left, def.maxStack);
+      const stack: ItemStack = dur === undefined ? { id, qty: n } : { id, qty: n, dur };
+      const i = this.firstEmpty();
+      if (i >= 0) this.slots[i] = stack; else this.slots.push(stack);
+      left -= n;
+    }
+  }
+
+  /** 從指定格取出（最多 qty 個）；回傳取出的堆疊 */
+  takeAt(i: number, qty?: number): ItemStack | null {
+    const s = this.slots[i];
+    if (!s) return null;
+    const n = Math.min(qty ?? s.qty, s.qty);
+    if (n <= 0) return null;
+    const out: ItemStack = s.dur === undefined ? { id: s.id, qty: n } : { id: s.id, qty: n, dur: s.dur };
+    s.qty -= n;
+    if (s.qty <= 0) this.slots[i] = null;
+    return out;
+  }
+
+  /** 依 id 移除（跨多個堆疊）。數量不足時不改動並回傳 false */
+  remove(id: string, qty: number): boolean {
+    if (this.count(id) < qty) return false;
+    let left = qty;
+    for (let i = this.capacity - 1; i >= 0 && left > 0; i--) {
+      const s = this.slots[i];
+      if (s && s.id === id) left -= this.takeAt(i, left)?.qty ?? 0;
+    }
+    return true;
+  }
+
+  /** 把一個堆疊拆出 qty 個到第一個空格 */
+  split(i: number, qty: number): MoveResult {
+    const s = this.slots[i];
+    if (!s) return { ok: false, reason: 'empty' };
+    if (qty <= 0 || qty >= s.qty) return { ok: false, reason: 'invalid' };
+    const e = this.firstEmpty();
+    if (e < 0) return { ok: false, reason: 'full' };
+    this.slots[e] = this.takeAt(i, qty);
+    return { ok: true, moved: qty };
+  }
+
+  /**
+   * 同一個容器內移動：目標為空 → 移過去；同種可堆疊 → 合併；不同物品且整堆移動 → 交換。
+   * qty 省略代表整堆。
+   */
+  moveWithin(from: number, to: number, qty?: number): MoveResult {
+    if (from === to) return { ok: false, reason: 'invalid' };
+    const src = this.slots[from];
+    if (!src) return { ok: false, reason: 'empty' };
+    if (to < 0 || to >= this.slots.length) return { ok: false, reason: 'invalid' };
+    const n = Math.min(qty ?? src.qty, src.qty);
+    if (n <= 0) return { ok: false, reason: 'invalid' };
+    const dst = this.slots[to];
+    const def = getItem(src.id);
+    if (!def) return { ok: false, reason: 'invalid' };
+    if (!dst) {
+      this.slots[to] = this.takeAt(from, n);
+      return { ok: true, moved: n };
+    }
+    if (dst.id === src.id && dst.dur === src.dur && def.maxStack > 1) {
+      const m = Math.min(n, def.maxStack - dst.qty);
+      if (m <= 0) return { ok: false, reason: 'full' };
+      dst.qty += m;
+      this.takeAt(from, m);
+      return { ok: true, moved: m };
+    }
+    if (n === src.qty) {
+      this.slots[from] = dst;
+      this.slots[to] = src;
+      return { ok: true, moved: n };
+    }
+    return { ok: false, reason: 'mismatch' };
+  }
+
+  /** 非空堆疊清單（附格子編號） */
+  entries(): { index: number; stack: ItemStack }[] {
+    const out: { index: number; stack: ItemStack }[] = [];
+    this.slots.forEach((s, index) => { if (s) out.push({ index, stack: s }); });
+    return out;
+  }
+}
+
+export function stackWeight(s: ItemStack): number {
+  return (getItem(s.id)?.weight ?? 0) * s.qty;
+}
+
+/** 超過 80% 開始變慢；超過 100% 不能衝刺（供 PlayerController 使用） */
+export function weightSpeedFactor(ratio: number): number {
+  if (ratio <= 0.8) return 1;
+  if (ratio <= 1) return 1 - 0.25 * ((ratio - 0.8) / 0.2);
+  return Math.max(0.45, 0.75 - 1.2 * (ratio - 1));
+}
+export const canSprintAtWeight = (ratio: number): boolean => ratio < 1;

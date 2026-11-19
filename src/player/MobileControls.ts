@@ -26,7 +26,7 @@ const BUTTONS: BtnDef[] = [
   { label: '蹲', action: 'crouch', size: 58, right: 106, bottom: 118, mode: 'toggle' },
   { label: '互動', action: 'interact', size: 54, right: 24, bottom: 216, mode: 'hold' },
   { label: '換彈', action: 'reload', size: 54, right: 92, bottom: 200, mode: 'hold' },
-  { label: '背包', action: 'inventory', size: 46, right: 14, top: 14, mode: 'hold' },
+  { label: '背包', action: 'inventory', size: 44, right: 64, top: 10, mode: 'hold' },
 ];
 
 /** 手機觸控介面：左側浮動搖桿（推到底衝刺）、右半螢幕拖曳轉視角、右下按鈕。支援多點觸控。 */

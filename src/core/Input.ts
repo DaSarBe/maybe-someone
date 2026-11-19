@@ -31,7 +31,20 @@ export class Input {
 
   /** 輸入是否生效：電腦版需 Pointer Lock，手機或 debug 模式永遠生效 */
   get active(): boolean {
-    return this.pointerLocked || this.isTouch || this.debug;
+    return !this.uiBlocked && (this.pointerLocked || this.isTouch || this.debug);
+  }
+
+  /** 有介面（背包、商店…）開著時為 true：遊戲輸入全部停用 */
+  uiBlocked = false;
+
+  /** 丟掉尚未處理的「剛按下」事件（關閉介面後避免立刻重複觸發） */
+  clearPressed(): void {
+    this.pressed.clear();
+  }
+
+  /** 釋放 Pointer Lock（開啟介面時） */
+  releaseLock(): void {
+    if (document.pointerLockElement) document.exitPointerLock();
   }
 
   // ---------- 寫入端 ----------

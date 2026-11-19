@@ -94,3 +94,6 @@ html, body {
 .credits-full { max-height: 220px; overflow: auto; white-space: pre-wrap; font: 11px/1.4 ui-monospace, Menlo, monospace; opacity: .85; }
 .credits { -webkit-user-select: text; user-select: text; }
 .credits { text-align: left; } .credits h2, .credits h3 { text-align: center; }
+
+.menu-btn.armed { background: rgba(255,70,70,.4); border-color: #ff7a7a; }
+.menu-btn.warn { border-color: rgba(255,200,80,.6); color: #ffe2a0; }

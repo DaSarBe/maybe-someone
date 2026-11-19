@@ -25,7 +25,7 @@ export class GreyboxScene implements Scene {
   private zoneType: ReverbType = 'outdoor';
   private tmp = new THREE.Vector3();
 
-  constructor(private opts: { showHud: boolean }) {}
+  constructor(private opts: { showHud: boolean; onExit?: () => void }) {}
 
   enter(game: Game): void {
     this.game = game;
@@ -45,7 +45,10 @@ export class GreyboxScene implements Scene {
 
     if (this.opts.showHud) this.hud = new DebugHud(game.container, game.bus, touch);
     if (touch) new MobileControls(game.container, game.input);
-    this.menu = new PauseMenu(game.container, game.input, game.audio, { touch, debug: game.debug });
+    this.menu = new PauseMenu(game.container, game.input, game.audio, {
+      touch, debug: game.debug,
+      extra: this.opts.onExit ? [{ label: '回到未來基地', onClick: this.opts.onExit }] : [],
+    });
 
     game.audio.setZones(this.map.reverbZones);
     this.fire = new TestFire(game.bus, game.input, this.camera, this.map.surfaceMeshes);
@@ -55,6 +58,7 @@ export class GreyboxScene implements Scene {
     this.hud?.dispose();
     this.menu?.dispose();
     this.fire?.dispose();
+    this.game.container.querySelector('.mc')?.remove();
   }
 
   resize(w: number, h: number): void {

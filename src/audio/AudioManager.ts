@@ -100,6 +100,7 @@ export class AudioManager implements SoundPlayer {
     bus.on('shot', (e) => this.playShot(e.weaponId, e.position));
     bus.on('weaponAction', (e) => this.playWeaponAction(e.weaponId, e.action, e.position));
     bus.on('reverbZoneChanged', (e) => this.setListenerZone(e.type));
+    bus.on('itemPicked', () => this.playUi('pickup', 0.7));
 
     for (const ev of ['pointerdown', 'touchend', 'keydown', 'click'] as const) {
       window.addEventListener(ev, this.gestureHandler, { capture: true, passive: true });

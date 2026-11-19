@@ -3,6 +3,7 @@ import { EventBus, type GameBus, type GameEvents } from './EventBus';
 import { Input } from './Input';
 import { AudioManager } from '../audio/AudioManager';
 import { LocalSaveService, type SaveService } from '../save/SaveService';
+import { EconomyService } from '../economy/EconomyService';
 
 export interface Scene {
   enter(game: Game): void;
@@ -12,6 +13,13 @@ export interface Scene {
   /** 每個畫面一次；alpha 為固定步長之間的內插比例 */
   render(alpha: number, frameDt: number): void;
   resize?(width: number, height: number): void;
+}
+
+/** 場景工廠：由 main.ts 註冊，避免場景之間互相 import */
+export interface SceneFactory {
+  hub: () => Scene;
+  raid: () => Scene;
+  greybox: () => Scene;
 }
 
 export interface GameOptions {
@@ -36,6 +44,9 @@ export class Game {
   readonly bus: GameBus = new EventBus<GameEvents>();
   readonly input: Input;
   readonly save: SaveService = new LocalSaveService();
+  /** 所有會改變存檔的操作都走這裡 */
+  readonly economy: EconomyService = new EconomyService(this.save);
+  scenes!: SceneFactory;
   readonly audio: AudioManager;
   readonly isTouch: boolean;
   readonly debug: boolean;

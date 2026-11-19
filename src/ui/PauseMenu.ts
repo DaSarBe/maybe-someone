@@ -2,6 +2,14 @@ import type { Input } from '../core/Input';
 import type { AudioManager, AudioSettings } from '../audio/AudioManager';
 import { Credits } from './Credits';
 
+export interface MenuButton {
+  label: string;
+  onClick: () => void;
+  /** 需要二次確認時的提示文字（再按一次才執行） */
+  confirm?: string;
+  cls?: string;
+}
+
 const SLIDERS: { key: keyof AudioSettings; label: string }[] = [
   { key: 'master', label: '主音量 Master' },
   { key: 'sfx', label: '音效 SFX' },
@@ -30,7 +38,13 @@ export class PauseMenu {
     parent: HTMLElement,
     private input: Input,
     private audio: AudioManager,
-    private opts: { touch: boolean; debug: boolean },
+    private opts: {
+      touch: boolean; debug: boolean;
+      hint?: string;
+      extra?: MenuButton[];
+      /** 回傳 true 時，失去 Pointer Lock 不開啟暫停選單（有介面開著） */
+      isBlocked?: () => boolean;
+    },
   ) {
     this.debugToggle = opts.debug;
     this.el.className = 'lock-overlay';
@@ -39,6 +53,7 @@ export class PauseMenu {
     const hint = document.createElement('p');
     hint.innerHTML = 'WASD 移動 ・ Shift 衝刺 ・ C 蹲下 ・ Space 跳躍<br>滑鼠轉視角 ・ 左鍵射擊 ・ R 換彈 ・ 1/2 換槍 ・ 3 空槍 ・ Esc 暫停';
     if (opts.touch) hint.innerHTML = '左側搖桿移動 ・ 右側拖曳轉視角 ・ 按鈕射擊、換彈';
+    if (opts.hint) hint.innerHTML = opts.touch ? opts.hint.split('|')[1] ?? opts.hint : opts.hint.split('|')[0];
 
     const resume = document.createElement('button');
     resume.className = 'menu-btn primary';
@@ -58,6 +73,7 @@ export class PauseMenu {
 
     this.main.className = 'menu-main';
     this.main.append(this.title, hint, resume, sliders, creditsBtn);
+    for (const b of opts.extra ?? []) this.main.appendChild(this.makeExtra(b));
     this.panel.append(this.main, this.credits.el);
     this.el.append(this.panel);
     parent.appendChild(this.el);
@@ -82,6 +98,7 @@ export class PauseMenu {
     } else {
       input.onLockChange = (locked) => {
         if (locked) this.hadLock = true;
+        if (!locked && opts.isBlocked?.()) return; // 介面開著：不跳出暫停選單
         this.setOpen(!locked);
       };
       this.setOpen(true);
@@ -89,6 +106,27 @@ export class PauseMenu {
   }
 
   private debugToggle: boolean;
+
+  private makeExtra(b: MenuButton): HTMLButtonElement {
+    const btn = document.createElement('button');
+    btn.className = `menu-btn ${b.cls ?? ''}`.trim();
+    btn.textContent = b.label;
+    let armed: number | null = null;
+    const disarm = () => { if (armed !== null) clearTimeout(armed); armed = null; btn.textContent = b.label; btn.classList.remove('armed'); };
+    btn.addEventListener('click', () => {
+      if (b.confirm && armed === null) {
+        this.audio.playUi('select');
+        btn.textContent = b.confirm;
+        btn.classList.add('armed');
+        armed = window.setTimeout(disarm, 3500);
+        return;
+      }
+      disarm();
+      this.audio.playUi('confirm');
+      b.onClick();
+    });
+    return btn;
+  }
 
   private makeSlider(key: keyof AudioSettings, label: string): HTMLElement {
     const row = document.createElement('label');
@@ -130,6 +168,12 @@ export class PauseMenu {
   }
 
   get isOpen(): boolean { return this.open; }
+
+  /** 介面關閉後：電腦版若沒有鎖定滑鼠就顯示「點擊畫面繼續」 */
+  refreshLock(): void {
+    if (this.opts.touch || this.opts.debug) return;
+    this.setOpen(!this.input.pointerLocked);
+  }
 
   dispose(): void {
     window.removeEventListener('keydown', this.onKey);
