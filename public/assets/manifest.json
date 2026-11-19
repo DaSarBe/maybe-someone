@@ -101,6 +101,15 @@
     "harbor_wind": "sounds/ambient/harbor_wind.ogg",
     "indoor_room_tone": "sounds/ambient/indoor_room_tone.ogg"
   },
+  "sfx": {
+    "time_machine_depart": "sounds/sfx/time_machine_depart.ogg",
+    "time_machine_arrive": "sounds/sfx/time_machine_arrive.ogg",
+    "stability_warning": "sounds/sfx/stability_warning.ogg",
+    "extract_success": "sounds/sfx/extract_success.ogg",
+    "death": "sounds/sfx/death.ogg",
+    "container_open": "sounds/sfx/container_open.ogg",
+    "search_rummage": "sounds/sfx/search_rummage.ogg"
+  },
   "ui": {
     "click": [
       "sounds/ui/click_001.ogg",
@@ -113,7 +122,10 @@
     "open": "sounds/ui/open_001.ogg",
     "close": "sounds/ui/close_001.ogg",
     "pickup": "sounds/ui/pluck_001.ogg",
-    "drop": "sounds/ui/drop_001.ogg"
+    "drop": "sounds/ui/drop_001.ogg",
+    "equip": "sounds/ui/equip_001.ogg",
+    "sell": "sounds/ui/sell_001.ogg",
+    "buy": "sounds/ui/buy_001.ogg"
   },
   "models": {
     "enemy_soldier": {
@@ -214,7 +226,9 @@
     "plate": "textures/surface_plate.png",
     "stone": "textures/surface_stone.png",
     "wall": "textures/surface_wall.png",
-    "bark": "textures/surface_bark.png"
+    "bark": "textures/surface_bark.png",
+    "scifi_floor": "textures/scifi_floor.png",
+    "scifi_wall": "textures/scifi_wall.png"
   },
   "notes": [
     "All .glb files use EXT_meshopt_compression (required): load with three.js MeshoptDecoder (three/examples/jsm/libs/meshopt_decoder.module.js) set on GLTFLoader.",
@@ -222,7 +236,8 @@
     "impacts.flesh uses impact_soft_medium (soft thud) as an approximation; impacts.generic uses impact_generic_light for concrete and unknown surfaces.",
     "ambient.machinery_hum is Kenney Sci-fi engine_circular_000 used as an approximate indoor hum; ambient.time_rift is force_field_000.",
     "textures are 128x128 PS1-style surface textures; tileable status not verified.",
-    "footsteps.gravel/water/sand, weapons.pistol_fire/reload, ambient.harbor_wind/indoor_room_tone: OpenGameArt CC0 (see CREDITS.md). weapons.rifle_fire: CC-BY 3.0, attribution required (see CREDITS.md)."
+    "footsteps.gravel/water/sand, weapons.pistol_fire/reload, ambient.harbor_wind/indoor_room_tone: OpenGameArt CC0 (see CREDITS.md). weapons.rifle_fire: CC-BY 3.0, attribution required (see CREDITS.md).",
+    "sfx.*, ui.equip/sell/buy, textures.scifi_floor/scifi_wall: see CREDITS.md (Sci-Fi Sounds/512 SFX CC0 via OpenGameArt; scifi textures are procedurally generated in-project). sfx.search_rummage is synthesized noise, not a sampled recording."
   ],
   "missing": [
     "footsteps.metal",

@@ -65,6 +65,28 @@
 - CC-BY 3.0 以上、CC-BY-SA、GPL 來源（如 Gary Guns / Q009 / Red Eclipse / Shotgun Shoot Reload / 2 Metal Weapon Clicks / Footsteps on different surfaces 等）皆未使用。
 - Gunshot sounds 的 sounds.zip 中 cz.wav、mosin.wav、shotty.wav 未使用（授權文字與 CC0 標示不一致，僅取用 sks.wav 並署名）。
 
+## 音效與貼圖（本次新增，CC0 或原創生成）
+
+音效來源：**The Essential Retro Video Game Sound Effects Collection [512 sounds]**，作者 Juhani Junkala，
+作品頁 https://opengameart.org/content/512-sound-effects-8-bit-style ，授權 **CC0 1.0**（壓縮檔內 INFO.txt 亦載明 CC0，「You can do anything you want with these sounds」）。
+原檔為 44.1kHz 16-bit mono WAV，以 ffmpeg 去頭尾靜音後轉為 mono 44.1kHz OGG（libvorbis q4）。
+
+| 檔案 | 原作檔名（512 sounds 壓縮檔內） | 備註 |
+|---|---|---|
+| sounds/sfx/time_machine_depart.ogg | Movement/Portals and Transitions/sfx_movement_portal2.wav | 時光機啟動（約 2.0 秒） |
+| sounds/sfx/time_machine_arrive.ogg | Movement/Portals and Transitions/sfx_movement_portal6.wav | 抵達（約 1.7 秒），與 depart 為不同素材 |
+| sounds/sfx/stability_warning.ogg | General Sounds/Alarms/Alarms/sfx_alarm_loop1.wav | 警告聲，可重複播放（約 0.8 秒） |
+| sounds/sfx/extract_success.ogg | General Sounds/Positive Sounds/sfx_sounds_powerup1.wav | 撤離成功（約 0.8 秒） |
+| sounds/sfx/death.ogg | General Sounds/Weird Sounds/sfx_sound_vaporizing.wav | 被時空吞噬（約 1.9 秒） |
+| sounds/sfx/container_open.ogg | General Sounds/Interactions/sfx_sounds_interaction3.wav | 開箱/櫃（約 1.0 秒） |
+| sounds/ui/equip_001.ogg | General Sounds/Interactions/sfx_sounds_interaction19.wav | 裝備（約 0.17 秒），非布料/金屬扣的實錄，為近似替代 |
+| sounds/ui/sell_001.ogg | General Sounds/Coins/sfx_coin_cluster1.wav | 販售（約 0.7 秒） |
+| sounds/ui/buy_001.ogg | General Sounds/Coins/sfx_coin_single2.wav | 購買（約 0.17 秒） |
+
+`sounds/sfx/search_rummage.ogg`：**本專案以 ffmpeg 程式合成**（pink noise 經帶通濾波與 tremolo 調變，約 1.6 秒，可循環），未使用任何第三方錄音。
+
+貼圖 `textures/scifi_floor.png`、`textures/scifi_wall.png`（512×512，可平鋪）：**本專案以 Python（numpy/Pillow）程式生成**，無外部來源，屬本專案原創。
+
 ## 不符合 CC0 而未使用的素材
 
 - Poly Pizza 上標示 CC-BY 的模型（依套件 NOTICE 亦未收錄）。
