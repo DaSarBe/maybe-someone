@@ -1,6 +1,7 @@
 # 素材來源與授權（CREDITS）
 
 所有素材皆為 **CC0 1.0（公眾領域）**，使用上無需署名；仍在此註明來源。
+唯一例外：`sounds/weapons/rifle_fire_*.ogg` 為 **CC BY 3.0**，須依下方「音效（OpenGameArt）」一節署名。
 清單與路徑對應請見 `manifest.json`。
 
 ## 音效（Kenney，CC0 1.0）
@@ -41,6 +42,29 @@
 
 參考：https://opengameart.org/content/base-material-texture-pack
 
+## 音效（OpenGameArt）
+
+下列作品頁面皆標示 License 為 CC0，除非註明為 CC BY 3.0。
+所有音效已以 ffmpeg 裁切、轉為 mono 44.1kHz OGG（libvorbis q4）；音量已調整以避免削波。
+
+| 檔案 | 原作 | 作品頁 | 授權 | 備註 |
+|---|---|---|---|---|
+| sounds/footsteps/gravel/01.ogg | DifferentSteps（gravel.ogg），作者 TinyWorlds | https://opengameart.org/content/different-steps-on-wood-stone-leaves-gravel-and-mud | CC0 | 單一步 |
+| sounds/footsteps/gravel/02–04.ogg | 100 CC0 SFX v2（stones_01/02/03），作者 rubberduck | https://opengameart.org/content/100-cc0-sfx-2 | CC0 | 原為石頭音效，當作碎石使用 |
+| sounds/footsteps/water/01–03.ogg | 100 CC0 SFX v2（footstep_wet_01/02/03），作者 rubberduck | https://opengameart.org/content/100-cc0-sfx-2 | CC0 | |
+| sounds/footsteps/sand/01–05.ogg | Water splash and sand footsteps（sand_footsteps_0.mp3），作者 Peludo | https://opengameart.org/content/water-splash-and-sand-footsteps | CC0 | 由一段連續錄音依靜音切出 5 步 |
+| sounds/weapons/pistol_fire_01–04.ogg | Gunshots（22 Pistol.wav / 22 Magnum.wav），作者 kurt | https://opengameart.org/content/gunshots | CC0 | 原檔為多發連續錄音（含回音），依靜音切出單發 |
+| sounds/weapons/rifle_fire_01–03.ogg | Gunshot sounds（sounds.zip 內 sks.wav） | https://opengameart.org/content/gunshot-sounds | **CC BY 3.0** | 署名：Vincent Sevedge（sounds.zip 內 creativecommons.txt 所載，「Audio and Visual content is covered under the Creative Commons Attribution 3.0 Unported License」，http://creativecommons.org/licenses/by/3.0/）。注意：OGA 作品頁標示 CC0 且列作者為 Tabasco，與壓縮檔內的授權文字不一致，依較保守的 CC BY 3.0 處理並署名。 |
+| sounds/weapons/reload_01–02.ogg | Gun reload sounds（gunreload1.wav / assaultriflereload1_0.wav），作者 SpringySpringo | https://opengameart.org/content/gun-reload-sounds | CC0 | |
+| sounds/weapons/reload_03.ogg | Handgun reload sound effect（reload.wav），作者 zer0_sol | https://opengameart.org/content/handgun-reload-sound-effect | CC0 | |
+| sounds/ambient/harbor_wind.ogg | Wind whoosh loop（wind woosh loop.ogg），作者 SketchMan3 | https://opengameart.org/content/wind-whoosh-loop | CC0 | 原檔約 6 秒，以交叉淡化接成可循環的約 10 秒音效；作為港口風聲為近似替代 |
+| sounds/ambient/indoor_room_tone.ogg | Sci-fi ambience SFX（SFX SCI FI Computer room ambience），作者 Fun Gi Development | https://opengameart.org/content/sci-fi-ambience-sfx | CC0 | 以交叉淡化處理為循環；作為室內環境音為近似替代 |
+
+未使用的素材（授權不符或無法取得）：
+- The Free Firearm Sound Library（CC0，194 MB，僅提供 .7z；本次無法解壓，未使用）。其餘 .7z 來源（Metal footsteps on concrete、Fantozzi footsteps）同樣因無法解壓而未使用。
+- CC-BY 3.0 以上、CC-BY-SA、GPL 來源（如 Gary Guns / Q009 / Red Eclipse / Shotgun Shoot Reload / 2 Metal Weapon Clicks / Footsteps on different surfaces 等）皆未使用。
+- Gunshot sounds 的 sounds.zip 中 cz.wav、mosin.wav、shotty.wav 未使用（授權文字與 CC0 標示不一致，僅取用 sks.wav 並署名）。
+
 ## 不符合 CC0 而未使用的素材
 
 - Poly Pizza 上標示 CC-BY 的模型（依套件 NOTICE 亦未收錄）。
@@ -48,4 +72,5 @@
 
 ## 尚缺
 
-見 `manifest.json` 的 `missing`：金屬/碎石/泥土/水/磁磚/沙地腳步聲、手槍/步槍/空槍/換彈音效、港口風聲、古董花瓶/電池/晶片模型、槍械模型。
+見 `manifest.json` 的 `missing`：金屬/泥土/磁磚腳步聲、空槍（dry_fire）音效、子彈命中水泥音效、古董花瓶/電池/晶片模型、槍械模型。
+（手槍/步槍/換彈與港口風聲、室內環境音已由上方 OpenGameArt 音效補上。）

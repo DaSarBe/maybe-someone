@@ -27,9 +27,44 @@
       "sounds/footsteps/carpet/03.ogg",
       "sounds/footsteps/carpet/04.ogg",
       "sounds/footsteps/carpet/05.ogg"
+    ],
+    "gravel": [
+      "sounds/footsteps/gravel/01.ogg",
+      "sounds/footsteps/gravel/02.ogg",
+      "sounds/footsteps/gravel/03.ogg",
+      "sounds/footsteps/gravel/04.ogg"
+    ],
+    "water": [
+      "sounds/footsteps/water/01.ogg",
+      "sounds/footsteps/water/02.ogg",
+      "sounds/footsteps/water/03.ogg"
+    ],
+    "sand": [
+      "sounds/footsteps/sand/01.ogg",
+      "sounds/footsteps/sand/02.ogg",
+      "sounds/footsteps/sand/03.ogg",
+      "sounds/footsteps/sand/04.ogg",
+      "sounds/footsteps/sand/05.ogg"
     ]
   },
-  "weapons": {},
+  "weapons": {
+    "pistol_fire": [
+      "sounds/weapons/pistol_fire_01.ogg",
+      "sounds/weapons/pistol_fire_02.ogg",
+      "sounds/weapons/pistol_fire_03.ogg",
+      "sounds/weapons/pistol_fire_04.ogg"
+    ],
+    "rifle_fire": [
+      "sounds/weapons/rifle_fire_01.ogg",
+      "sounds/weapons/rifle_fire_02.ogg",
+      "sounds/weapons/rifle_fire_03.ogg"
+    ],
+    "reload": [
+      "sounds/weapons/reload_01.ogg",
+      "sounds/weapons/reload_02.ogg",
+      "sounds/weapons/reload_03.ogg"
+    ]
+  },
   "impacts": {
     "metal": [
       "sounds/impacts/metal_01.ogg",
@@ -62,7 +97,9 @@
   },
   "ambient": {
     "machinery_hum": "sounds/ambient/machinery_hum.ogg",
-    "time_rift": "sounds/ambient/time_rift.ogg"
+    "time_rift": "sounds/ambient/time_rift.ogg",
+    "harbor_wind": "sounds/ambient/harbor_wind.ogg",
+    "indoor_room_tone": "sounds/ambient/indoor_room_tone.ogg"
   },
   "ui": {
     "click": [
@@ -184,23 +221,16 @@
     "footsteps.concrete/wood/grass/carpet: Kenney Impact Sounds (CC0), 5 variants each.",
     "impacts.flesh uses impact_soft_medium (soft thud) as an approximation; impacts.generic uses impact_generic_light for concrete and unknown surfaces.",
     "ambient.machinery_hum is Kenney Sci-fi engine_circular_000 used as an approximate indoor hum; ambient.time_rift is force_field_000.",
-    "textures are 128x128 PS1-style surface textures; tileable status not verified."
+    "textures are 128x128 PS1-style surface textures; tileable status not verified.",
+    "footsteps.gravel/water/sand, weapons.pistol_fire/reload, ambient.harbor_wind/indoor_room_tone: OpenGameArt CC0 (see CREDITS.md). weapons.rifle_fire: CC-BY 3.0, attribution required (see CREDITS.md)."
   ],
   "missing": [
     "footsteps.metal",
-    "footsteps.gravel",
     "footsteps.dirt",
-    "footsteps.water",
     "footsteps.tile",
-    "footsteps.sand",
-    "weapons.pistol_fire",
-    "weapons.rifle_fire",
     "weapons.dry_fire",
-    "weapons.reload",
     "weapons.bullet_impact_concrete",
     "impacts.concrete (generic used instead)",
-    "ambient.harbor_wind",
-    "ambient.indoor_room_tone",
     "models.pistol",
     "models.rifle",
     "models.vase_antique",
