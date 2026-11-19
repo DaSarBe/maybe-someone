@@ -33,5 +33,13 @@ game.scenes = {
 
 // 預設進入未來基地；?scene=greybox 進入 M1/M2 的灰盒測試場景，?scene=raid 直接開始測試 Raid
 const start = params.get('scene');
-game.setScene(start === 'greybox' ? game.scenes.greybox() : start === 'raid' ? game.scenes.raid() : game.scenes.hub());
-game.start();
+if (start === 'harbor') {
+  // ?scene=harbor：港口地圖預覽（M4 驗收用），動態載入，不增加主程式大小
+  void import('./world/maps/HarborPreviewScene').then(({ HarborPreviewScene }) => {
+    game.setScene(new HarborPreviewScene({ showHud }));
+    game.start();
+  });
+} else {
+  game.setScene(start === 'greybox' ? game.scenes.greybox() : start === 'raid' ? game.scenes.raid() : game.scenes.hub());
+  game.start();
+}
