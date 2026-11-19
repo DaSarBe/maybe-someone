@@ -131,7 +131,7 @@ export class AudioManager implements SoundPlayer {
 
     bus.on('footstep', (e) => this.surfaceSounds.footstep(e.surface, e.intensity, e.position));
     bus.on('land', (e) => this.surfaceSounds.land(e.surface, e.fallSpeed));
-    bus.on('impact', (e) => this.surfaceSounds.impact(e.surface, e.position));
+    bus.on('impact', (e) => this.surfaceSounds.impact(e.surface, e.position, e.flesh));
     bus.on('shot', (e) => this.playShot(e.weaponId, e.position));
     bus.on('weaponAction', (e) => this.playWeaponAction(e.weaponId, e.action, e.position));
     bus.on('reverbZoneChanged', (e) => this.setListenerZone(e.type));

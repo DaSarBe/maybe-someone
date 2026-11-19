@@ -1,6 +1,7 @@
 import { DEFAULT_ERA } from '../data/eras';
 import { STARTING_CREDITS, getItem } from '../data/items';
 import { ARMOR_STATS, BACKPACK_STATS, POCKETS } from '../data/gear';
+import { WEAPON_STATS } from '../data/weapons';
 import { UPGRADES, type UpgradeId } from '../data/upgrades';
 import { stackWeight, type ItemStack, type Slot } from './Inventory';
 
@@ -108,6 +109,14 @@ export function armorMaxDurability(id: string): number {
   return ARMOR_STATS[id]?.durability ?? 0;
 }
 
+/**
+ * 物品的「狀態值」上限：護甲 = 耐久，武器 = 彈匣容量。存在 ItemStack.dur。
+ * 省略 dur 代表全新 / 彈匣是滿的。
+ */
+export function itemMaxDur(id: string): number {
+  return ARMOR_STATS[id]?.durability ?? WEAPON_STATS[id]?.magazine ?? 0;
+}
+
 // ---------------------------------------------------------------- 存檔清理與升級
 function cleanStack(raw: unknown): ItemStack | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -118,7 +127,7 @@ function cleanStack(raw: unknown): ItemStack | null {
   const q = Number(r.qty ?? r.count ?? 1);
   if (!Number.isFinite(q) || q < 1) return null;
   const s: ItemStack = { id: r.id, qty: Math.min(def.maxStack, Math.floor(q)) };
-  if (typeof r.dur === 'number' && def.category === 'armor') s.dur = Math.max(0, Math.min(armorMaxDurability(r.id), r.dur));
+  if (typeof r.dur === 'number' && (def.category === 'armor' || def.category === 'weapon')) s.dur = Math.max(0, Math.min(itemMaxDur(r.id), Math.floor(r.dur)));
   return s;
 }
 

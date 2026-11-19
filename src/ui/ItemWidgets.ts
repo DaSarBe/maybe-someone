@@ -3,7 +3,7 @@ import { CATEGORY_NAMES, RARITY_COLORS, RARITY_NAMES, getItem } from '../data/it
 import { WEAPON_STATS } from '../data/weapons';
 import { CONTAINER_NAMES, type ContainerId, type Loc } from '../economy/EconomyService';
 import type { ItemStack } from '../items/Inventory';
-import { EQUIP_SLOTS, armorMaxDurability, type EquipSlot } from '../items/Profile';
+import { EQUIP_SLOTS, itemMaxDur, type EquipSlot } from '../items/Profile';
 import { btn, el, fmtCredits, fmtKg } from './dom';
 import type { Ui } from './Ui';
 
@@ -88,7 +88,7 @@ export function itemCell(stack: ItemStack | null, o: CellOpts = {}): HTMLElement
     cell.appendChild(g);
     if (stack.qty > 1) cell.appendChild(el('span', 'qty', String(stack.qty)));
     if (stack.dur !== undefined) {
-      const max = armorMaxDurability(stack.id) || 1;
+      const max = itemMaxDur(stack.id) || 1;
       const bar = el('span', 'dur');
       const fill = el('i');
       fill.style.width = `${Math.round((stack.dur / max) * 100)}%`;
@@ -268,7 +268,7 @@ export function itemInfo(ctx: InvCtx, stack: ItemStack, opts: { price?: { label:
     rows.push(['欄位', w.slot === 'primary' ? '主武器' : '副武器']);
     rows.push(['傷害', `${w.damage}${w.pellets > 1 ? ` × ${w.pellets}` : ''}`]);
     rows.push(['射速', `${w.fireRate} 發/分`]);
-    rows.push(['彈匣', `${w.magazine} 發（${getItem(w.ammoType)?.name ?? w.ammoType}）`]);
+    rows.push(['彈匣', `${stack.dur ?? w.magazine} / ${w.magazine} 發（${getItem(w.ammoType)?.name ?? w.ammoType}）`]);
   }
   const a = ARMOR_STATS[def.id];
   if (a) {

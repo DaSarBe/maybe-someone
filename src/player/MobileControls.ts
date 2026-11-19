@@ -17,6 +17,8 @@ interface BtnDef {
   cls?: string;
   /** 按住拖曳同時控制視角 */
   look?: boolean;
+  /** 只在有戰鬥系統的場景顯示 */
+  combat?: boolean;
 }
 
 const BUTTONS: BtnDef[] = [
@@ -27,6 +29,8 @@ const BUTTONS: BtnDef[] = [
   { label: '互動', action: 'interact', size: 54, right: 24, bottom: 216, mode: 'hold' },
   { label: '換彈', action: 'reload', size: 54, right: 92, bottom: 200, mode: 'hold' },
   { label: '背包', action: 'inventory', size: 44, right: 64, top: 10, mode: 'hold' },
+  { label: '切換', action: 'weaponSwap', size: 46, right: 168, bottom: 96, mode: 'hold', combat: true, cls: 'mc-sm' },
+  { label: '治療', action: 'heal', size: 46, right: 168, bottom: 150, mode: 'hold', combat: true, cls: 'mc-sm' },
 ];
 
 /** 手機觸控介面：左側浮動搖桿（推到底衝刺）、右半螢幕拖曳轉視角、右下按鈕。支援多點觸控。 */
@@ -38,7 +42,7 @@ export class MobileControls {
   private center = { x: 0, y: 0 };
   private home = { x: 0, y: 0 };
 
-  constructor(parent: HTMLElement, private input: Input) {
+  constructor(parent: HTMLElement, private input: Input, opts: { combat?: boolean } = {}) {
     this.root.className = 'mc';
     this.root.addEventListener('contextmenu', (e) => e.preventDefault());
 
@@ -54,7 +58,7 @@ export class MobileControls {
     this.bindStick(zone);
 
     this.root.append(look, zone, this.base);
-    BUTTONS.forEach((d) => this.root.appendChild(this.makeButton(d, look)));
+    BUTTONS.filter((d) => !d.combat || opts.combat).forEach((d) => this.root.appendChild(this.makeButton(d, look)));
     parent.appendChild(this.root);
 
     this.placeHome();

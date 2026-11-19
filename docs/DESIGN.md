@@ -100,3 +100,16 @@ public/assets/            models/ sounds/ sprites/ textures/ + CREDITS.md + mani
 ## 6. 第一張地圖（暫定）
 由素材取得情況決定，候選：「1990 年代港口工業區」（貨櫃＝金屬、碼頭＝木頭、倉庫＝水泥、空地＝碎石、海邊＝水）。
 材質種類多，很適合展示依場地變化的音效。
+
+## 7. M4 戰鬥與敵人 AI 約定（Sonnet A）
+
+- **RaidScene**（`world/RaidScene.ts`）是通用 Raid 場景，建構時接收 `RaidMapLoader`；時代 id → 載入器的對照表在 `world/maps/index.ts`（換正式地圖只改這裡）。
+  容器、撤離點（`random` 的每場隨機開放）、抵達點、敵人、導航圖全部讀 `RaidMap`，場景不寫死座標。地圖載入是非同步的，期間顯示讀取畫面；`scene.loaded` 是完成的 Promise。
+- **物品狀態值 `ItemStack.dur`**：護甲 = 剩餘耐久，武器 = 彈匣內子彈數（省略 = 全新 / 滿彈匣）。上限由 `itemMaxDur(id)` 決定。
+  彈藥從背包扣（`EconomyService.consumeCarried`），換彈完成時才扣；彈匣與護甲耐久在換槍、開啟介面、撤離 / 死亡前寫回（`setEquipState`），不是每發都存檔。
+- **戰鬥解耦**：`PlayerController` 不認識武器，只有 `speedScale`、`sprintBlocked`、`addView()`（後座力）、`shake()`（受傷）；`Input.lookScale` 用於瞄準與觸控輔助瞄準。
+  武器系統透過 Input 與 EventBus 溝通：`shot`（`shooter` 省略 = 玩家，AI 帶敵人 id）、`impact`（`flesh` = 打中人體）、`weaponAction`、`footstep`（`source`）、`playerHurt`、`enemyHit`。
+- **傷害**（`combat/Damage.ts`，玩家與敵人共用）：頭 ×2.5、身體 ×1、四肢 ×0.7；護甲在耐久 > 0 時對身體與四肢減傷並消耗耐久（傷害 × 0.3），頭部無視護甲；距離衰減見 `damageFalloff`。
+- **敵人 AI**（`ai/`）：`Brain.ts` 是純邏輯狀態機（巡邏 / 警戒 / 追擊 / 攻擊 / 搜索 / 死亡），`Perception.ts` 是視覺（發現值累積）與聽覺（腳步聲半徑 = 強度 × 地面材質響度）的公式，
+  `Nav.ts` 是 A*，`NavBuilder.ts` 可在靜態碰撞上自動產生導航圖，`Enemy.ts` 負責移動、射擊、動畫，`EnemyManager.ts` 負責生成、事件分派、LOD（遠處降低 AI 與動畫更新頻率）。
+- 敵人數值與掉落在 `data/enemies.ts`；武器手感（散佈、瞄準 FOV）在 `data/weaponHandling.ts`；醫療品在 `data/medical.ts`。

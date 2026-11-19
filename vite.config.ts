@@ -5,5 +5,5 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   base: process.env.GITHUB_PAGES ? '/maybe-someone/' : '/',
   server: { port: 5173 },
-  build: { chunkSizeWarningLimit: 900 },
+  build: { chunkSizeWarningLimit: 1100 },
 });

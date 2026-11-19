@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
-export type Action = 'jump' | 'crouch' | 'sprint' | 'fire' | 'aim' | 'interact' | 'reload' | 'inventory';
+export type Action = 'jump' | 'crouch' | 'sprint' | 'fire' | 'aim' | 'interact' | 'reload' | 'inventory'
+  | 'weapon1' | 'weapon2' | 'weaponSwap' | 'heal';
 
 const MOUSE_SENS = 0.0022;
 
@@ -12,6 +13,8 @@ export class Input {
   readonly isTouch: boolean;
   readonly debug: boolean;
   pointerLocked = false;
+  /** 視角靈敏度倍率（瞄準、觸控輔助瞄準會調整） */
+  lookScale = 1;
   /** 鎖定狀態改變 */
   onLockChange: ((locked: boolean) => void) | null = null;
 
@@ -92,7 +95,7 @@ export class Input {
 
   /** 取走累積的視角增量 */
   consumeLook(out: THREE.Vector2): THREE.Vector2 {
-    if (this.active) out.set(this.lookX, this.lookY); else out.set(0, 0);
+    if (this.active) out.set(this.lookX * this.lookScale, this.lookY * this.lookScale); else out.set(0, 0);
     this.lookX = 0;
     this.lookY = 0;
     return out;
@@ -110,6 +113,7 @@ export class Input {
     const keyAction: Record<string, Action> = {
       Space: 'jump', KeyC: 'crouch', ControlLeft: 'crouch', ShiftLeft: 'sprint', ShiftRight: 'sprint',
       KeyE: 'interact', KeyR: 'reload', Tab: 'inventory',
+      Digit1: 'weapon1', Digit2: 'weapon2', KeyQ: 'weaponSwap', Digit4: 'heal',
     };
     const updateMove = () => {
       const k = this.keys;
@@ -163,5 +167,9 @@ export class Input {
       if (e.button === 2) this.setAction('mouse', 'aim', false);
     });
     document.addEventListener('contextmenu', (e) => e.preventDefault());
+    // 滾輪切換武器
+    document.addEventListener('wheel', (e) => {
+      if (this.pointerLocked && e.deltaY !== 0) this.pressed.add('weaponSwap');
+    }, { passive: true });
   }
 }

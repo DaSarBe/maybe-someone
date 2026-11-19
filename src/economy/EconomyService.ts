@@ -6,7 +6,7 @@ import { WEAPON_STATS } from '../data/weapons';
 import type { ItemDef } from '../data/types';
 import { Inventory, stackWeight, type ItemStack } from '../items/Inventory';
 import {
-  EQUIP_SLOTS, PROFILE_KEY, carriedSpec, createDefaultProfile, equipmentWeight, fitProfile,
+  EQUIP_SLOTS, PROFILE_KEY, carriedSpec, createDefaultProfile, equipmentWeight, fitProfile, itemMaxDur,
   migrateProfile, raidDuration, safeCapacity, searchTimeScale, secureCapacity, stashCapacity,
   type EquipSlot, type Profile, type RaidResult,
 } from '../items/Profile';
@@ -391,6 +391,38 @@ export class EconomyService {
       p.pendingResult = result;
       return { ok: true, result };
     });
+  }
+
+  // ---------------------------------------------------------------- 戰鬥（Raid 中）
+  /** 背包中某種物品的數量（彈藥、醫療品） */
+  countCarried(id: string): number { return this.inv(this.p, 'carried').count(id); }
+
+  /**
+   * 從背包扣除物品（彈藥、醫療品）。最多扣 qty，回傳實際扣掉的數量。
+   * 彈藥只從背包取，保險袋與倉庫的不算。
+   */
+  consumeCarried(id: string, qty: number): number {
+    if (!this.p.raid || qty <= 0) return 0;
+    const inv = this.inv(this.p, 'carried');
+    const n = Math.min(qty, inv.count(id));
+    if (n <= 0) return 0;
+    inv.remove(id, n);
+    this.persist();
+    return n;
+  }
+
+  /**
+   * 寫回裝備的狀態值（武器彈匣 / 護甲耐久）。戰鬥系統在換彈、切槍、開啟介面與撤離前呼叫，
+   * 不是每發子彈都寫，避免頻繁存檔。
+   */
+  setEquipState(slot: EquipSlot, dur: number): void {
+    const e = this.p.equipment[slot];
+    if (!e) return;
+    const max = itemMaxDur(e.id);
+    const v = Math.max(0, Math.min(max, Math.round(dur)));
+    if (e.dur === v) return;
+    e.dur = v;
+    this.persist();
   }
 
   /** 玩家看完結算畫面 */

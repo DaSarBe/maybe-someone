@@ -10,16 +10,18 @@ export class ResultPanel implements Panel {
   readonly el: HTMLElement;
   readonly locked = true;
 
-  constructor(ui: Ui, result: RaidResult, onContinue: () => void) {
+  constructor(ui: Ui, result: RaidResult, onContinue: () => void, opts: { killedBy?: string } = {}) {
     const ok = result.outcome === 'extract';
-    const f = panelFrame(ui, ok ? '撤離成功' : '時空亂流吞噬了你', { showCredits: false, closable: false });
+    const f = panelFrame(ui, ok ? '撤離成功' : opts.killedBy ? `被 ${opts.killedBy} 擊殺` : '時空亂流吞噬了你', { showCredits: false, closable: false });
     this.el = f.root;
     this.el.classList.add('result', ok ? 'win' : 'lose');
     f.body.className = 'panel-body single result-body';
     const era = getEra(result.era);
     const sub = result.interrupted
       ? '你在 Raid 途中離線／重新整理，時空連結中斷，視為死亡。'
-      : ok ? `你帶著戰利品平安回到了基地。（${era?.name ?? ''}）` : `你在 ${era?.name ?? '過去'} 失去了所有身上的物品。`;
+      : ok ? `你帶著戰利品平安回到了基地。（${era?.name ?? ''}）` : opts.killedBy
+        ? `你被 ${opts.killedBy} 擊殺，在 ${era?.name ?? '過去'} 失去了所有身上的物品。`
+        : `你在 ${era?.name ?? '過去'} 失去了所有身上的物品。`;
     f.body.appendChild(el('p', 'result-sub', sub));
 
     f.body.appendChild(el('div', 'col-head', ok ? '這次帶回的物品' : '失去的物品'));

@@ -45,6 +45,9 @@ export const IMPACT_PROFILES: Record<Surface, ImpactProfile> = {
   water: { bank: 'impacts.generic', volume: 0.6, rate: 0.7, lowpass: 900 },
 };
 
+/** 打中人體 */
+const FLESH_PROFILE: ImpactProfile = { bank: 'impacts.flesh', volume: 1, rate: 1 };
+
 const rand = (amount: number): number => 1 + (Math.random() * 2 - 1) * amount;
 
 /** 腳步、落地、命中的音效變化邏輯 */
@@ -92,8 +95,8 @@ export class SurfaceSounds {
   }
 
   /** 子彈命中：依命中物材質選音庫，有空間定位 */
-  impact(surface: Surface, position: THREE.Vector3): void {
-    const p = IMPACT_PROFILES[surface];
+  impact(surface: Surface, position: THREE.Vector3, flesh = false): void {
+    const p = flesh ? FLESH_PROFILE : IMPACT_PROFILES[surface];
     this.player.play({
       key: this.player.has(p.bank) ? p.bank : 'impacts.generic',
       volume: p.volume * rand(VOLUME_JITTER),
@@ -102,7 +105,7 @@ export class SurfaceSounds {
       position,
       wet: 0.6,
       refDistance: 3,
-      tag: `impact ${surface}`,
+      tag: flesh ? 'impact flesh' : `impact ${surface}`,
     });
   }
 }

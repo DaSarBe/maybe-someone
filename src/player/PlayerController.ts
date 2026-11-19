@@ -37,6 +37,10 @@ export interface PlayerState {
 export class PlayerController {
   readonly camera: THREE.PerspectiveCamera;
   readonly state: PlayerState = { grounded: false, crouching: false, sprinting: false, moving: false, speed: 0 };
+  /** 外部系統（戰鬥、治療）的移動速度倍率；PlayerController 不認識武器，只看這個倍率 */
+  speedScale = 1;
+  /** 外部系統禁止衝刺（換彈、瞄準、治療中） */
+  sprintBlocked = false;
   /** 目前腳下材質（約 10Hz 更新） */
   surface: Surface = DEFAULT_SURFACE;
 
@@ -107,6 +111,25 @@ export class PlayerController {
     return this.yaw;
   }
 
+  get facingPitch(): number {
+    return this.pitch;
+  }
+
+  /** 外部加視角（後座力、回正）：dyaw 往左為正、dpitch 往上為正（弧度） */
+  addView(dyaw: number, dpitch: number): void {
+    this.yaw += dyaw;
+    this.pitch = THREE.MathUtils.clamp(this.pitch + dpitch, -1.55, 1.55);
+  }
+
+  /** 鏡頭晃動（受傷）：amp 為弧度振幅，會自己衰減 */
+  shake(amp: number): void {
+    this.shakeAmp = Math.min(0.08, Math.max(this.shakeAmp, amp));
+  }
+  /** 本幀的視角增量（弧度；武器慣性擺動用） */
+  readonly lastLook = new THREE.Vector2();
+  private shakeAmp = 0;
+  private shakeT = 0;
+
   teleport(pos: THREE.Vector3, yaw = this.yaw): void {
     this.capsule.start.set(pos.x, pos.y + RADIUS, pos.z);
     this.capsule.end.set(pos.x, pos.y + STAND_H - RADIUS, pos.z);
@@ -149,8 +172,8 @@ export class PlayerController {
       this.weightTimer = 0.25;
       this.weightRatio = this.weightProvider ? this.weightProvider() : 0;
     }
-    st.sprinting = input.isDown('sprint') && !st.crouching && mv.y > 0.3 && canSprintAtWeight(this.weightRatio);
-    const maxSpeed = (st.crouching ? CROUCH_SPEED : st.sprinting ? SPRINT_SPEED : WALK_SPEED) * weightSpeedFactor(this.weightRatio);
+    st.sprinting = input.isDown('sprint') && !st.crouching && !this.sprintBlocked && mv.y > 0.3 && canSprintAtWeight(this.weightRatio);
+    const maxSpeed = (st.crouching ? CROUCH_SPEED : st.sprinting ? SPRINT_SPEED : WALK_SPEED) * weightSpeedFactor(this.weightRatio) * this.speedScale;
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
     // forward = (-sin, -cos)；right = (cos, -sin)
     const wx = (-sin * mv.y + cos * mv.x) * maxSpeed;
@@ -372,6 +395,7 @@ export class PlayerController {
   // ---------------------------------------------------------------- 每幀相機
   updateCamera(alpha: number, frameDt: number): void {
     const look = this.input.consumeLook(this.tmpLook);
+    this.lastLook.copy(look);
     this.yaw -= look.x;
     this.pitch = THREE.MathUtils.clamp(this.pitch - look.y, -1.55, 1.55);
 
@@ -387,7 +411,15 @@ export class PlayerController {
     const stepY = this.prevStepOffset + (this.stepOffset - this.prevStepOffset) * alpha;
     const cos = Math.cos(this.yaw), sin = Math.sin(this.yaw);
     this.camera.position.set(p.x + cos * bobX, p.y + this.eye + bobY + stepY, p.z - sin * bobX);
-    this.camera.rotation.set(this.pitch, this.yaw, 0);
+    let sp = 0, sy = 0, sr = 0;
+    if (this.shakeAmp > 1e-4) {
+      this.shakeT += frameDt * 38;
+      sp = Math.sin(this.shakeT * 1.3) * this.shakeAmp;
+      sy = Math.cos(this.shakeT) * this.shakeAmp * 0.7;
+      sr = Math.sin(this.shakeT * 0.8) * this.shakeAmp * 1.2;
+      this.shakeAmp *= Math.exp(-frameDt * 9);
+    }
+    this.camera.rotation.set(this.pitch + sp, this.yaw + sy, sr);
   }
 }
 
