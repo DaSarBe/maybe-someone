@@ -75,6 +75,7 @@ export class WeaponSystem {
   private recoilAccum = 0;       // 尚未回正的上飄量（弧度）
   private recoilPending = 0;    // 待套用的後座（弧度），幾個畫面內平滑加上去
   private sinceShot = 1;
+  private pumpT = 0;
   private lastWritten: (number | null)[] = [null, null];
   private flushTimer = 0;
   private dirty = false;
@@ -181,6 +182,11 @@ export class WeaponSystem {
     this.emptyClickT = Math.max(0, this.emptyClickT - dt);
     this.fireBuffer = Math.max(0, this.fireBuffer - dt);
     this.sinceShot += dt;
+    if (this.pumpT > 0) {
+      this.pumpT -= dt;
+      const cw = this.current;
+      if (this.pumpT <= 0 && cw && cw.stats.pellets > 1) this.d.bus.emit('weaponAction', { weaponId: cw.id, action: 'pump', position: camera.getWorldPosition(this.origin).clone() });
+    }
 
     // 切換武器
     if (input.consumePress('weapon1')) this.select(0);
@@ -282,7 +288,7 @@ export class WeaponSystem {
     this.shotsFired++;
     this.dirty = true;
 
-    bus.emit('shot', { weaponId: w.id, position: this.origin.clone(), direction: this.fwd.clone() });
+    bus.emit('shot', { weaponId: w.id, position: this.origin.clone(), direction: this.fwd.clone(), surface: this.d.player.surface });
     fx.muzzleFlash(this.muzzle.clone().addScaledVector(this.fwd, 0.15), 0.35);
     vm.kick(w.stats.recoil * (this.ads > 0.5 ? 0.7 : 1) + 0.25);
 
@@ -312,9 +318,9 @@ export class WeaponSystem {
         if (soundBudget-- > 0) bus.emit('impact', { surface: 'concrete', position: t.point.clone(), flesh: true });
         if (!hitSent || r.killed) { bus.emit('enemyHit', { zone: t.zone, killed: r.killed, position: t.point.clone() }); hitSent = true; }
       } else if (world) {
-        fx.impact(world.point, world.normal, world.surface);
+        fx.impact(world.point, world.normal, world.flesh ? 'flesh' : world.surface);
         fx.tracer(this.muzzle, world.point);
-        if (soundBudget-- > 0) bus.emit('impact', { surface: world.surface, position: world.point.clone(), normal: world.normal.clone() });
+        if (soundBudget-- > 0) bus.emit('impact', { surface: world.surface, position: world.point.clone(), normal: world.normal.clone(), flesh: world.flesh || undefined });
       } else {
         this.end.copy(this.origin).addScaledVector(this.dir, 120);
         fx.tracer(this.muzzle, this.end);
@@ -328,5 +334,6 @@ export class WeaponSystem {
     this.d.player.addView((Math.random() - 0.5) * kick * 0.8, 0);
     this.bloom = Math.min(this.bloom + h.bloomPerShot, h.bloomPerShot * 6);
     this.sinceShot = 0;
+    if (stats.pellets > 1) this.pumpT = 0.42; // 霰彈槍：開完槍自動上膛
   }
 }

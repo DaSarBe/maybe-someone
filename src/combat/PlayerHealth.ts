@@ -60,7 +60,7 @@ export class PlayerHealth {
     this.armorDur = r.durAfter;
     this.hp = Math.max(0, this.hp - r.damage);
     const killed = this.hp <= 0;
-    this.bus.emit('playerHurt', { amount: r.damage, from, killed });
+    this.bus.emit('playerHurt', { amount: r.damage, from, killed, armor: r.durLoss > 0 });
     this.player.shake(Math.min(0.045, 0.012 + r.damage * 0.0008));
     if (killed) {
       this.dead = true;
@@ -75,7 +75,7 @@ export class PlayerHealth {
   /** 使用治療品；正在治療時再按一次 = 取消（已使用的物品不會退還） */
   toggleHeal(): 'started' | 'cancelled' | 'full' | 'none' {
     if (this.dead) return 'none';
-    if (this.heal) { this.cancelHeal(); return 'cancelled'; }
+    if (this.heal) { this.cancelHeal(); this.bus.emit('heal', { phase: 'cancel' }); return 'cancelled'; }
     if (this.hp >= this.max - 0.5) return 'full';
     const ids = Object.keys(MEDICAL_STATS).filter((id) => this.eco.countCarried(id) > 0);
     const id = pickMedical(ids, this.max - this.hp);
@@ -83,6 +83,7 @@ export class PlayerHealth {
     if (this.eco.consumeCarried(id, 1) < 1) return 'none';
     const m = MEDICAL_STATS[id];
     this.heal = { id, rate: m.heal / m.duration, left: m.duration };
+    this.bus.emit('heal', { phase: 'start' });
     return 'started';
   }
 
@@ -103,6 +104,6 @@ export class PlayerHealth {
     const step = Math.min(dt, this.heal.left);
     this.hp = Math.min(this.max, this.hp + this.heal.rate * step);
     this.heal.left -= step;
-    if (this.heal.left <= 1e-6 || this.hp >= this.max) this.heal = null;
+    if (this.heal.left <= 1e-6 || this.hp >= this.max) { this.heal = null; this.bus.emit('heal', { phase: 'done' }); }
   }
 }

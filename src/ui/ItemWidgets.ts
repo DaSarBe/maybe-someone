@@ -246,7 +246,7 @@ export function bodyColumn(ctx: InvCtx): HTMLElement {
 }
 
 // ---------------------------------------------------------------- 詳細資訊
-export function itemInfo(ctx: InvCtx, stack: ItemStack, opts: { price?: { label: string; value: number } } = {}): HTMLElement {
+export function itemInfo(ctx: InvCtx, stack: ItemStack, opts: { price?: { label: string; value: number; fmt?: (n: number) => string } | null } = {}): HTMLElement {
   const def = getItem(stack.id);
   const box = el('div', 'info');
   if (!def) return box;
@@ -278,8 +278,11 @@ export function itemInfo(ctx: InvCtx, stack: ItemStack, opts: { price?: { label:
   const b = BACKPACK_STATS[def.id];
   if (b) rows.push(['容量', `${b.slots} 格 / ${b.maxWeight} kg`]);
   const unit = ctx.eco.sellPriceOf(stack.id);
-  const p = opts.price ?? { label: '估價', value: unit * stack.qty };
-  rows.push([p.label, `${fmtCredits(p.value)}${stack.qty > 1 && !opts.price ? `（單價 ${fmtCredits(unit)}）` : ''}`]);
+  if (opts.price !== null) {
+    const p = opts.price ?? { label: '估價', value: unit * stack.qty };
+    const fmt = p.fmt ?? fmtCredits;
+    rows.push([p.label, `${fmt(p.value)}${stack.qty > 1 && !opts.price ? `（單價 ${fmtCredits(unit)}）` : ''}`]);
+  }
   const dl = el('dl', 'stats');
   for (const [k, v] of rows) dl.append(el('dt', '', k), el('dd', '', v));
   box.appendChild(dl);

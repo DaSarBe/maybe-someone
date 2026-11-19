@@ -1,9 +1,11 @@
 import * as THREE from 'three';
-import type { RaidMap, RaidMapLoader } from '../RaidMap';
+import type { MapAmbience, RaidMap, RaidMapLoader } from '../RaidMap';
+import { findReverbZone, type ReverbType } from '../Surface';
 import { buildHarborCore } from './harbor1990/core';
 import { ARRIVALS, ENEMY_SPAWNS, EVAC_POINTS, HARBOR_BOUNDS, LOOT_SPOTS, TRADER } from './harbor1990/data';
 import { decorateHarbor, loadHarborTextures } from './harbor1990/decor';
 import { NAV_EDGES, NAV_NODES } from './harbor1990/navData';
+import type { LightSpec } from './harbor1990/util';
 
 export { applyHarborAtmosphere } from './harbor1990/decor';
 
@@ -15,6 +17,31 @@ export function buildHarborNav(): RaidMap['nav'] {
   for (let i = 0; i < NAV_EDGES.length; i += 2) edges.push([NAV_EDGES[i], NAV_EDGES[i + 1]]);
   return { nodes, edges };
 }
+
+/** 室外是傍晚（還算亮），室內與隧道較暗；有燈的地方依距離變亮 */
+const BASE_LIGHT: Record<ReverbType, number> = { outdoor: 0.85, indoor_large: 0.4, indoor_small: 0.35, tunnel: 0.22 };
+
+/** 敵人感知用的亮度 0..1：回音區（室內外）當底，加上點光源的貢獻 */
+export function harborLightAt(zones: RaidMap['reverbZones'], lights: readonly LightSpec[], pos: THREE.Vector3): number {
+  const zone = findReverbZone(zones, pos);
+  let v = BASE_LIGHT[zone?.type ?? 'outdoor'];
+  for (const l of lights) {
+    const range = l.light.distance;
+    const d = l.light.position.distanceTo(pos);
+    if (d >= range) continue;
+    const strength = Math.min(1, Math.max(0.35, l.base / 40));
+    v += strength * 0.6 * Math.pow(1 - d / range, 1.5);
+  }
+  return Math.min(1, v);
+}
+
+/** 海岸線上的幾個浪聲音源（碼頭前緣，海在 z < -64） */
+const SHORE_POINTS = [-80, -50, -20, 10, 40, 75].map((x) => new THREE.Vector3(x, 0, -65));
+const HARBOR_AMBIENCE: MapAmbience = {
+  waves: { points: SHORE_POINTS, refDist: 14, maxDist: 75, volume: 0.9 },
+  seagulls: { interval: [20, 60], volume: 0.55 },
+  shipHorn: { count: [1, 3], volume: 1.0, origin: new THREE.Vector3(0, 0, -64), distance: [140, 210] },
+};
 
 /**
  * 1990 年代港口工業區（約 184m × 156m 陸地 + 北側海面）。
@@ -31,6 +58,9 @@ export const loadHarbor1990: RaidMapLoader = async () => {
     collision: core.collision,
     surfaceMeshes: [...core.surfaceMeshes, ...decor.extraSurfaceMeshes],
     reverbZones: core.ctx.zones,
+    ownsLighting: true,
+    lightAt: (pos) => harborLightAt(core.ctx.zones, core.ctx.lights, pos),
+    ambience: HARBOR_AMBIENCE,
     spawn: { position: spawn.position.clone(), yaw: spawn.yaw },
     arrivals: ARRIVALS.map((a) => ({ position: a.position.clone(), yaw: a.yaw })),
     lootSpots: LOOT_SPOTS,

@@ -331,7 +331,8 @@
     "textures are 128x128 PS1-style surface textures; tileable status not verified.",
     "footsteps.metal/metal_hollow/metal_grate: Thimras CC0 recordings (metal steps on concrete) with a project-synthesized character layer on top (see CREDITS.md). footsteps.gravel/water/sand, weapons.pistol_fire/reload, ambient.harbor_wind/indoor_room_tone: OpenGameArt CC0 (see CREDITS.md). weapons.rifle_fire: CC-BY 3.0, attribution required (see CREDITS.md).",
     "sfx.*, ui.equip/sell/buy, textures.scifi_floor/scifi_wall: see CREDITS.md (Sci-Fi Sounds/512 SFX CC0 via OpenGameArt; scifi textures are procedurally generated in-project). sfx.search_rummage is synthesized noise, not a sampled recording.",
-    "M4: weapon_* models are Quaternius FPS Pack (CC0) OBJ+MTL, not glb/meshopt; prop_pallet is OBJ. enemy.hurt/death/alert, player_flesh, ambient.ship_horn/seagulls/waves were chosen by waveform segmentation and metadata, NOT auditioned by ear; verify before shipping. alert_01 is CC-BY 4.0 (attribution in CREDITS.md)."
+    "M4: weapon_* models are Quaternius FPS Pack (CC0) OBJ+MTL, not glb/meshopt; prop_pallet is OBJ. enemy.hurt/death/alert, player_flesh, ambient.ship_horn/seagulls/waves were chosen by waveform segmentation and metadata, NOT auditioned by ear; verify before shipping. alert_01 is CC-BY 4.0 (attribution in CREDITS.md).",
+    "M4c: weapons.casing / weapons.bullet_flyby / impacts.player_armor (and extra weapons.shotgun_boom / weapons.shotgun_pump) have no sample files on purpose: they are synthesized at runtime (src/audio/Synth.ts RECIPES). smg and shotgun gunshots are processed from pistol_fire / rifle_fire at runtime (AudioManager SHOT_LAYERS). The 'enemy' category is part of the p1 audio sprite."
   ],
   "missing": [
     "footsteps.dirt",
@@ -344,9 +345,6 @@
     "models.chip",
     "models.dock_container_or_warehouse_modular",
     "enemy.alert_02 and enemy.alert_03 (only one CC-BY alert clip found)",
-    "weapons.casing (no CC0 shell-drop sample found)",
-    "weapons.bullet_flyby (no CC0 whoosh found; snd_bulletcrackle is a crackle, not used)",
-    "impacts.player_armor (no CC0 metal bullet-on-armor hit found)",
     "models.prop_container (only CC-BY 4.0 shipping container obj found; readme conflicts, not used; other container packs are .blend only)",
     "models.prop_crane",
     "models.prop_forklift (only CC-BY 4.0 .blend found)",

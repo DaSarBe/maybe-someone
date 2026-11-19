@@ -1,4 +1,4 @@
-import { getEra } from '../data/eras';
+import { TEST_MAP_DURATION, getEra } from '../data/eras';
 import { ARMOR_STATS } from '../data/gear';
 import { SHOP_CATEGORIES, getItem } from '../data/items';
 import { getUpgrade, type UpgradeId } from '../data/upgrades';
@@ -11,14 +11,17 @@ import {
   type EquipSlot, type Profile, type RaidResult,
 } from '../items/Profile';
 import type { SaveService } from '../save/SaveService';
+import { getTrader } from '../data/traders';
 import { buyPrice, dateKey, sellPrice } from './Pricing';
+import { rollTraderStock, traderSellTotal, type TraderOffer } from './Trader';
 
 export type ContainerId = 'stash' | 'carried' | 'secure' | 'safe';
 export type Loc = { c: ContainerId; i: number };
 
 export type FailCode =
   | 'invalid' | 'no_credits' | 'full' | 'overweight' | 'in_raid' | 'not_in_raid' | 'locked'
-  | 'max_level' | 'not_equippable' | 'not_for_sale' | 'already_in_raid';
+  | 'max_level' | 'not_equippable' | 'not_for_sale' | 'already_in_raid'
+  | 'no_trader' | 'no_stock' | 'no_currency' | 'not_tradable';
 
 export type Result<T extends object = object> = ({ ok: true } & T) | { ok: false; code: FailCode; reason: string };
 
@@ -34,6 +37,10 @@ const REASONS: Record<FailCode, string> = {
   not_equippable: '這個物品無法裝備',
   not_for_sale: '商店不販售這個物品',
   already_in_raid: 'Raid 已經在進行中',
+  no_trader: '這個時代沒有商人',
+  no_stock: '商人的庫存不足',
+  no_currency: '舊台幣不夠',
+  not_tradable: '商人不收這個',
 };
 
 const fail = (code: FailCode, reason?: string): { ok: false; code: FailCode; reason: string } => ({
@@ -105,7 +112,10 @@ export class EconomyService {
     return out;
   }
 
-  raidDurationSec(): number { return raidDuration(this.p); }
+  /** 某時代的 Raid 停留秒數（基礎 + 穩定器）；省略時代 = 舊行為（基礎 300 秒） */
+  raidDurationSec(eraId?: string): number {
+    return raidDuration(this.p, eraId ? getEra(eraId)?.baseDuration : undefined);
+  }
   searchScale(): number { return searchTimeScale(this.p); }
 
   upgradeLevel(id: UpgradeId): number { return this.p.upgrades[id]; }
@@ -323,14 +333,15 @@ export class EconomyService {
     return counts;
   }
 
-  startRaid(eraId: string): Result<{ duration: number }> {
+  /** testMap：測試地圖（?scene=raid&map=test）用 5 分鐘基礎時間 */
+  startRaid(eraId: string, opts: { testMap?: boolean } = {}): Result<{ duration: number }> {
     return this.tx((p) => {
       if (p.raid) return fail('already_in_raid');
       const era = getEra(eraId);
       if (!era) return fail('invalid');
       if (!era.unlocked) return fail('locked');
-      const duration = raidDuration(p);
-      p.raid = { era: eraId, startedAt: this.now(), duration, snapshot: this.bodyCounts(p) };
+      const duration = raidDuration(p, opts.testMap ? TEST_MAP_DURATION : era.baseDuration);
+      p.raid = { era: eraId, startedAt: this.now(), duration, snapshot: this.bodyCounts(p), trade: { bought: {}, sold: {} } };
       return { ok: true, duration };
     });
   }
@@ -390,6 +401,79 @@ export class EconomyService {
       p.raid = null;
       p.pendingResult = result;
       return { ok: true, result };
+    });
+  }
+
+  // ---------------------------------------------------------------- 時代商人（Raid 中）
+  /** 本場商人的貨架（含剩餘庫存）；沒有商人或不在 Raid 中回傳空陣列 */
+  traderOffers(): (TraderOffer & { left: number })[] {
+    const raid = this.p.raid;
+    const def = raid ? getTrader(raid.era) : undefined;
+    if (!raid || !def) return [];
+    const bought = raid.trade?.bought ?? {};
+    return rollTraderStock(def, raid.startedAt).map((o) => ({ ...o, left: Math.max(0, o.stock - (bought[o.id] ?? 0)) }));
+  }
+
+  /** 賣出報價：在目前 Raid 已賣出數量的基礎上，賣 qty 件可拿到多少舊台幣 */
+  traderSellQuote(itemId: string, qty: number): number {
+    const raid = this.p.raid;
+    const def = raid ? getTrader(raid.era) : undefined;
+    if (!raid || !def) return 0;
+    return traderSellTotal(def, itemId, qty, raid.trade?.sold[itemId] ?? 0, dateKey(this.now()));
+  }
+
+  /** 商人的貨幣（舊台幣）：背包裡有多少 */
+  traderCurrency(): { id: string; have: number } | null {
+    const def = this.p.raid ? getTrader(this.p.raid.era) : undefined;
+    return def ? { id: def.currency, have: this.countCarried(def.currency) } : null;
+  }
+
+  /** 把背包（或保險袋）的物品賣給商人，換成當地貨幣放進背包 */
+  traderSell(from: Loc, qty?: number): Result<{ gain: number; sold: number }> {
+    return this.tx((p) => {
+      const raid = p.raid;
+      if (!raid) return fail('not_in_raid');
+      const def = getTrader(raid.era);
+      if (!def) return fail('no_trader');
+      if (from.c !== 'carried' && from.c !== 'secure') return fail('invalid');
+      const inv = this.inv(p, from.c);
+      const s = inv.slots[from.i];
+      if (!s) return fail('invalid');
+      if (s.id === def.currency) return fail('not_tradable', '商人不收自己的貨幣');
+      const n = qty ?? s.qty;
+      if (!Number.isInteger(n) || n < 1 || n > s.qty) return fail('invalid');
+      raid.trade ??= { bought: {}, sold: {} };
+      const gain = traderSellTotal(def, s.id, n, raid.trade.sold[s.id] ?? 0, dateKey(this.now()));
+      if (gain < 1) return fail('not_tradable');
+      inv.takeAt(from.i, n);
+      const carried = this.inv(p, 'carried');
+      if (carried.add(def.currency, gain) > 0) return fail('full', '背包放不下這麼多舊台幣');
+      raid.trade.sold[s.id] = (raid.trade.sold[s.id] ?? 0) + n;
+      return { ok: true, gain, sold: n };
+    });
+  }
+
+  /** 用背包裡的舊台幣向商人買東西，放進背包 */
+  traderBuy(itemId: string, qty = 1): Result<{ cost: number }> {
+    return this.tx((p) => {
+      const raid = p.raid;
+      if (!raid) return fail('not_in_raid');
+      const def = getTrader(raid.era);
+      if (!def) return fail('no_trader');
+      if (!getItem(itemId) || !Number.isInteger(qty) || qty < 1) return fail('invalid');
+      raid.trade ??= { bought: {}, sold: {} };
+      const offer = rollTraderStock(def, raid.startedAt).find((o) => o.id === itemId);
+      if (!offer) return fail('invalid', '商人沒有這個商品');
+      const left = offer.stock - (raid.trade.bought[itemId] ?? 0);
+      if (qty > left) return fail('no_stock');
+      const cost = offer.price * qty;
+      const carried = this.inv(p, 'carried');
+      if (carried.count(def.currency) < cost) return fail('no_currency');
+      carried.remove(def.currency, cost);
+      const dur = getItem(itemId)!.category === 'armor' ? ARMOR_STATS[itemId]?.durability : undefined;
+      if (carried.add(itemId, qty, dur) > 0) return fail(this.whyFull(carried, itemId), this.whyFull(carried, itemId) === 'full' ? '背包已滿' : undefined);
+      raid.trade.bought[itemId] = (raid.trade.bought[itemId] ?? 0) + qty;
+      return { ok: true, cost };
     });
   }
 

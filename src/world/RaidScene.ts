@@ -7,6 +7,7 @@ import { preloadEnemyModel } from '../ai/EnemyModel';
 import { CombatFx } from '../combat/Fx';
 import { PlayerHealth } from '../combat/PlayerHealth';
 import { Viewmodel } from '../combat/Viewmodel';
+import { preloadWeaponModels } from '../combat/WeaponModels';
 import { WeaponSystem } from '../combat/WeaponSystem';
 import { WorldTrace } from '../combat/WorldTrace';
 import type { Game, Scene } from '../core/Game';
@@ -25,15 +26,20 @@ import { PauseMenu } from '../ui/PauseMenu';
 import { Ui, type Panel } from '../ui/Ui';
 import { LootPanel } from '../ui/panels/LootPanel';
 import { ResultPanel } from '../ui/panels/ResultPanel';
+import { TraderPanel } from '../ui/panels/TraderPanel';
 import { TransferPanel } from '../ui/panels/TransferPanel';
+import { getTrader } from '../data/traders';
 import { setupLighting } from './Lighting';
 import { makeLabel } from './maps/hub';
 import { fitModel, loadModel } from './Models';
 import type { EvacPoint, LootSpot, RaidMap, RaidMapLoader } from './RaidMap';
+import { TraderNpc } from './TraderNpc';
 import { findReverbZone, type ReverbType, type ReverbZone, type Surface } from './Surface';
 
 const EVAC_SECONDS = 5;
 const INTERACT_RANGE = 2.3;
+/** 與商人互動的距離（水平）：商人在攤位內，玩家在櫃檯前 */
+const TRADER_RANGE = 3.7;
 const MARKER_COLOR: Record<ContainerType, string> = {
   crate: '#ffcf5a', toolbox: '#ff8a3d', cabinet: '#7cc4ff', safe: '#ff3dcb', corpse: '#ff5a5a',
 };
@@ -65,7 +71,7 @@ export interface RaidEvac {
  */
 export class RaidScene implements Scene {
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(75, 1, 0.05, 200);
+  readonly camera = new THREE.PerspectiveCamera(75, 1, 0.05, 250);
   player!: PlayerController;
   map!: RaidMap;
   ui!: Ui;
@@ -81,6 +87,7 @@ export class RaidScene implements Scene {
   loaded: Promise<void>;
   loadError: string | null = null;
   killedBy: string | null = null;
+  trader: TraderNpc | null = null;
   /** 準心正對著敵人 */
   onTarget = false;
 
@@ -107,6 +114,7 @@ export class RaidScene implements Scene {
   private needRelease = false;
   private evacProgress = 0;
   private nearC: RaidContainer | null = null;
+  private nearTrader = false;
   private t = 0;
   private disposed = false;
   private playerTarget: PlayerTarget = {
@@ -121,7 +129,7 @@ export class RaidScene implements Scene {
     if (e.code === 'KeyK' && !e.repeat && !this.ui.isOpen && this.ready) this.end('death');
   };
 
-  constructor(private loader: RaidMapLoader, private opts: { showHud?: boolean } = {}) {
+  constructor(private loader: RaidMapLoader, private opts: { showHud?: boolean; testMap?: boolean } = {}) {
     this.loaded = new Promise((res) => { this.resolveLoaded = res; });
   }
 
@@ -130,7 +138,7 @@ export class RaidScene implements Scene {
     this.game = game;
     const eco = game.economy;
     // 直接載入 ?scene=raid 時還沒出發過：自動開始一場
-    if (!eco.inRaid) eco.startRaid(DEFAULT_ERA);
+    if (!eco.inRaid) eco.startRaid(DEFAULT_ERA, { testMap: this.opts.testMap });
     const raid = eco.profile.raid;
     if (raid) { this.era = raid.era; this.duration = raid.duration; this.startedAt = raid.startedAt; }
     this.showLoading();
@@ -171,12 +179,23 @@ export class RaidScene implements Scene {
     const eco = game.economy;
     const touch = game.isTouch;
 
-    const [map] = await Promise.all([this.loader(), preloadEnemyModel('enemy_soldier'), preloadEnemyModel('enemy_robot_gunner')]);
+    const [map] = await Promise.all([
+      this.loader(), preloadEnemyModel('enemy_soldier'), preloadEnemyModel('enemy_robot_gunner'), preloadEnemyModel('npc_worker'), preloadWeaponModels(),
+    ]);
     if (this.disposed) return;
     this.map = map;
 
-    setupLighting(this.scene, { shadowMapSize: touch ? 1024 : 2048, extent: 62 });
+    // 地圖自帶光源、霧、天空（harbor1990）就不再套用預設燈光
+    if (!map.ownsLighting) setupLighting(this.scene, { shadowMapSize: touch ? 1024 : 2048, extent: 62 });
     this.scene.add(map.root);
+
+    // 時代商人：碰撞先加進地圖（Octree 之前），子彈判定用隱形圓柱
+    const traderDef = map.trader ? getTrader(this.era) : undefined;
+    if (map.trader && traderDef) {
+      this.trader = new TraderNpc({ ...map.trader, name: traderDef.name });
+      map.collision.add(this.trader.collider);
+      this.scene.add(this.trader.root, this.trader.hitbox);
+    }
     const octree = new Octree();
     octree.fromGraphNode(map.collision);
 
@@ -195,7 +214,7 @@ export class RaidScene implements Scene {
     if (touch) new MobileControls(game.container, game.input, { combat: true });
 
     // ---- 戰鬥系統 ----
-    this.trace = new WorldTrace(map.surfaceMeshes);
+    this.trace = new WorldTrace(this.trader ? [...map.surfaceMeshes, this.trader.hitbox] : map.surfaceMeshes);
     this.fx = new CombatFx(this.scene);
     this.health = new PlayerHealth(game.bus, eco, this.player);
     this.health.onDeath = (killer) => { this.killedBy = killer; this.end('death', killer); };
@@ -232,17 +251,17 @@ export class RaidScene implements Scene {
 
     this.unsubs.push(
       game.bus.on('playerHurt', (e) => this.onHurt(e.amount, e.from)),
-      game.bus.on('enemyHit', (e) => {
-        this.chud.showHit(e.zone, e.killed);
-        game.audio.play({ key: 'ui.select', volume: e.killed ? 0.5 : 0.3, rate: e.zone === 'head' ? 1.7 : e.killed ? 1.4 : 1.15, group: 'ui', tag: `hit ${e.zone}` });
-      }),
+      game.bus.on('enemyHit', (e) => this.chud.showHit(e.zone, e.killed)),
     );
 
     game.audio.setZones(map.reverbZones);
+    // 從基地（室內）過來：先把聽者所在區重設為室外，之後只有換區時才會再發事件
+    game.bus.emit('reverbZoneChanged', { type: 'outdoor', zone: null });
     this.spawnContainers(map.lootSpots);
     this.spawnEvac(map.evacPoints);
-    await this.enemies.spawn(map.enemySpawns, this.scene);
+    await Promise.all([this.enemies.spawn(map.enemySpawns, this.scene), this.trader?.load()]);
     if (this.disposed) return;
+    game.audio.startMapAmbience(map.ambience, this.duration);
 
     game.renderer.autoClear = false;
     this.ready = true;
@@ -262,6 +281,8 @@ export class RaidScene implements Scene {
     window.removeEventListener('keydown', this.onKey);
     for (const u of this.unsubs) u();
     this.enemies.dispose();
+    this.trader?.dispose();
+    this.game.audio.stopMapAmbience();
     this.fx.dispose();
     this.ui.dispose();
     this.hud.dispose();
@@ -399,6 +420,7 @@ export class RaidScene implements Scene {
   // ---------------------------------------------------------------- 感知用的環境查詢
   private lightAt(p: THREE.Vector3): number {
     const q = this.tmp.set(p.x, p.y + 0.9, p.z);
+    if (this.map.lightAt) return this.map.lightAt(q);
     const z = findReverbZone(this.map.reverbZones, q);
     return LIGHT_BY_ZONE[z?.type ?? 'outdoor'];
   }
@@ -444,6 +466,11 @@ export class RaidScene implements Scene {
     this.ui.open(p);
   }
 
+  openTrader(): void {
+    if (!this.trader || this.ui.isOpen) return;
+    this.openPanel(new TraderPanel(this.ui, this.era));
+  }
+
   private openContainer(c: RaidContainer): void {
     this.openPanel(new LootPanel(this.ui, c.def, c.loot));
   }
@@ -464,7 +491,6 @@ export class RaidScene implements Scene {
       angle = Math.atan2(right, fwd);
     }
     this.chud.showHurt(amount, angle);
-    this.game.audio.play({ key: 'impacts.flesh', volume: 0.8, rate: 0.8, lowpass: 2500, tag: 'player hurt' });
   }
 
   update(dt: number): void {
@@ -526,6 +552,11 @@ export class RaidScene implements Scene {
     this.nearC = near;
     if (!inp.isDown('interact')) this.needRelease = false;
 
+    // 時代商人：靠近按 E 開啟交易介面（優先於容器）
+    const tp = this.map.trader?.position;
+    this.nearTrader = !!(this.trader && tp && Math.hypot(pos.x - tp.x, pos.z - tp.z) <= TRADER_RANGE && Math.abs(pos.y - tp.y) < 2.2);
+    if (this.nearTrader && inp.consumePress('interact')) { this.openTrader(); return; }
+
     if (near && near !== this.searching) { this.searching = null; this.searchProgress = 0; }
     if (near && !near.searched && inp.isDown('interact') && !this.needRelease) {
       this.searching = near;
@@ -548,6 +579,7 @@ export class RaidScene implements Scene {
   }
 
   private promptText(): string | null {
+    if (this.nearTrader) return this.game.isTouch ? '點「互動」：與時代商行交易' : '按 E 與時代商行交易';
     const c = this.nearC;
     if (!c) return null;
     const touch = this.game.isTouch;
@@ -581,6 +613,8 @@ export class RaidScene implements Scene {
     this.frustum.setFromProjectionMatrix(this.projScreen);
     this.enemies.updateAnim(frameDt, this.frustum);
     game.audio.updateListener(this.camera);
+    game.audio.updateMapAmbience(frameDt);
+    this.trader?.update(frameDt, true);
     this.map.update?.(frameDt, this.t);
 
     for (const c of this.containers) {
@@ -594,7 +628,7 @@ export class RaidScene implements Scene {
       this.hud.setTimer(Math.max(0, this.remaining), this.duration);
       const text = this.promptText();
       const c = this.nearC;
-      this.hud.setPrompt(this.ui.isOpen ? null : text, c && c.searched && c.loot.some((s) => !!s) ? () => this.openContainer(c) : undefined);
+      this.hud.setPrompt(this.ui.isOpen ? null : text, this.nearTrader ? () => this.openTrader() : c && c.searched && c.loot.some((s) => !!s) ? () => this.openContainer(c) : undefined);
       if (this.ui.isOpen) this.hud.setProgress(null);
       else if (this.evacProgress > 0.001) this.hud.setProgress(`撤離中… ${(EVAC_SECONDS * (1 - this.evacProgress)).toFixed(1)}s`, this.evacProgress);
       else if (this.searchProgress > 0.001) this.hud.setProgress('搜索中…', this.searchProgress);

@@ -3,6 +3,9 @@ import type { GameBus } from '../core/EventBus';
 import type { SaveService } from '../save/SaveService';
 import { findReverbZone, type ReverbType, type ReverbZone } from '../world/Surface';
 import { Ambience } from './Ambience';
+import { MapAmbienceRunner, type AmbienceHost } from './MapAmbience';
+import type { MapAmbience } from '../world/RaidMap';
+import type { Surface } from '../world/Surface';
 import { ReverbSystem, ZONE_PARAMS } from './ReverbZones';
 import { RECIPES, renderBank } from './Synth';
 import {
@@ -63,6 +66,38 @@ const pageLoaded = (): Promise<void> =>
 /** 音量滑桿 0..1 → 增益（平方曲線，比較貼近聽感） */
 const toGain = (v: number): number => v * v;
 const jitter = (amt: number): number => 1 + (Math.random() * 2 - 1) * amt;
+
+interface ShotLayer { key: string; rate: number; volume: number; lowpass?: number; highshelf?: number }
+/**
+ * 各武器的槍聲：用現有素材（pistol_fire / rifle_fire）加上變速、濾波與合成疊層做出不同的聲音。
+ *  - pistol：原聲
+ *  - smg：pistol_fire 加快 30%、高頻擱架 +7dB（更脆更尖）
+ *  - rifle：原聲（rifle_fire）
+ *  - shotgun：rifle_fire 降調到 0.62 倍、壓掉高頻，再疊 synth 的低頻爆破層
+ */
+export const SHOT_LAYERS: Record<string, ShotLayer[]> = {
+  pistol: [{ key: 'weapons.pistol_fire', rate: 1, volume: 1 }],
+  smg: [{ key: 'weapons.pistol_fire', rate: 1.3, volume: 0.85, highshelf: 7 }],
+  rifle: [{ key: 'weapons.rifle_fire', rate: 1, volume: 1 }],
+  shotgun: [
+    { key: 'weapons.rifle_fire', rate: 0.62, volume: 0.9, lowpass: 5200 },
+    { key: 'weapons.shotgun_boom', rate: 1, volume: 0.95 },
+  ],
+};
+/** 彈殼落地的延遲（秒）：霰彈槍在上膛時才退殼 */
+const CASING_DELAY: Record<string, number> = { pistol: 0.32, smg: 0.28, rifle: 0.34, shotgun: 0.95 };
+/** 彈殼落在不同地面的聲音變化 */
+const CASING_SURFACE: Record<Surface, { rate: number; volume: number; lowpass?: number }> = {
+  concrete: { rate: 1, volume: 1 }, tile: { rate: 1.1, volume: 1 },
+  metal: { rate: 1.12, volume: 1.15 }, metal_hollow: { rate: 0.92, volume: 1.1 }, metal_grate: { rate: 1.2, volume: 1 },
+  wood: { rate: 0.82, volume: 0.8, lowpass: 4500 },
+  gravel: { rate: 0.95, volume: 0.7, lowpass: 5500 },
+  grass: { rate: 0.75, volume: 0.35, lowpass: 2200 }, dirt: { rate: 0.72, volume: 0.35, lowpass: 2000 },
+  sand: { rate: 0.7, volume: 0.3, lowpass: 1800 }, carpet: { rate: 0.7, volume: 0.3, lowpass: 2000 },
+  water: { rate: 0.6, volume: 0.3, lowpass: 1500 },
+};
+const ALERT_COOLDOWN = 4.5;      // 全場任何敵人兩次喊叫的最短間隔（秒）
+const ALERT_COOLDOWN_EACH = 15;  // 同一個敵人的喊叫間隔
 
 /**
  * 音效系統。只靠 EventBus 與遊戲溝通（footstep / land / impact / shot / weaponAction /
@@ -132,8 +167,13 @@ export class AudioManager implements SoundPlayer {
     bus.on('footstep', (e) => this.surfaceSounds.footstep(e.surface, e.intensity, e.position));
     bus.on('land', (e) => this.surfaceSounds.land(e.surface, e.fallSpeed));
     bus.on('impact', (e) => this.surfaceSounds.impact(e.surface, e.position, e.flesh));
-    bus.on('shot', (e) => this.playShot(e.weaponId, e.position));
+    bus.on('shot', (e) => { this.playShot(e.weaponId, e.position); this.playCasing(e.weaponId, e.surface ?? 'concrete', e.position, e.direction, !!e.shooter); });
     bus.on('weaponAction', (e) => this.playWeaponAction(e.weaponId, e.action, e.position));
+    bus.on('enemyVoice', (e) => this.playEnemyVoice(e.kind, e.position, e.enemyId));
+    bus.on('bulletFlyby', (e) => this.playFlyby(e.position, e.distance));
+    bus.on('playerHurt', (e) => this.play({ key: e.armor ? 'impacts.player_armor' : 'impacts.player_flesh', volume: e.armor ? 0.95 : 0.9, rate: jitter(0.06), tag: e.armor ? 'player hit armor' : 'player hit flesh' }));
+    bus.on('enemyHit', (e) => this.playHitMarker(e.zone, e.killed));
+    bus.on('heal', (e) => this.playHeal(e.phase));
     bus.on('reverbZoneChanged', (e) => this.setListenerZone(e.type));
     bus.on('itemPicked', () => this.playUi('pickup', 0.7));
 
@@ -215,7 +255,7 @@ export class AudioManager implements SoundPlayer {
       this.stats.format = format;
 
       // manifest 一回來就開始合成缺少素材的音庫，不擋素材
-      const synthEarly = manifestP.then((ok) => (ok ? this.renderSynth(Object.keys(RECIPES).filter((k) => !this.manifestPaths.has(k))) : undefined));
+      const synthEarly = manifestP.then((ok) => (ok ? this.renderSynth(Object.keys(RECIPES).filter((k) => !this.manifestPaths.get(k)?.length)) : undefined));
 
       // 依優先順序下載：前一組下載完才開始下一組，避免擠掉 p0 的頻寬；
       // p1 之後還要等頁面（JS 與 three.js）載入完成，不跟遊戲本體搶頻寬
@@ -447,24 +487,137 @@ export class AudioManager implements SoundPlayer {
   /**
    * 開槍。回音由「槍口所在的回音區」決定（不是聽者所在區）：
    * AI 或其他玩家在隧道裡開槍，就算聽者在室外也聽到隧道的回音。
+   * 每把武器由 SHOT_LAYERS 決定要疊哪些聲音。
    */
   playShot(weaponId: string, position: THREE.Vector3): void {
     const zone = findReverbZone(this.zones, position)?.type ?? 'outdoor';
-    const key = this.has(`weapons.${weaponId}_fire`) ? `weapons.${weaponId}_fire` : 'weapons.pistol_fire';
+    const layers = SHOT_LAYERS[weaponId] ?? SHOT_LAYERS.pistol;
+    const vJ = jitter(0.05), rJ = jitter(0.03);
+    for (const l of layers) {
+      const key = this.has(l.key) ? l.key : 'weapons.pistol_fire';
+      if (!this.has(key)) continue;
+      this.play({
+        key, volume: l.volume * vJ, rate: l.rate * rJ, lowpass: l.lowpass, highshelf: l.highshelf,
+        position, wet: 1.1, sourceZone: zone, refDistance: 8,
+        tag: `shot ${weaponId} ${l.key.split('.')[1]} @${zone}`,
+      });
+    }
+  }
+
+  /** 彈殼落地（延遲播放，音色依地面材質）。敵人的彈殼只有近處才聽得到 */
+  playCasing(weaponId: string, surface: Surface, shotPos: THREE.Vector3, dir: THREE.Vector3 | undefined, fromEnemy: boolean): void {
+    if (fromEnemy && this.listenerPos.distanceTo(shotPos) > 35) return;
+    const prof = CASING_SURFACE[surface] ?? CASING_SURFACE.concrete;
+    const pos = this.tmpCasing.copy(shotPos);
+    pos.y -= fromEnemy ? 1.3 : 1.5;
+    if (dir) { pos.x += -dir.z * 0.8; pos.z += dir.x * 0.8; } // 玩家右側的地面
     this.play({
-      key,
-      volume: 1 * jitter(0.05),
-      rate: jitter(0.03),
-      position,
-      wet: 1.1,
-      sourceZone: zone,
-      refDistance: 8,
-      tag: `shot ${weaponId} @${zone}`,
+      key: 'weapons.casing', volume: (fromEnemy ? 0.22 : 0.4) * prof.volume * jitter(0.15), rate: prof.rate * jitter(0.08),
+      lowpass: prof.lowpass, position: pos.clone(), delay: (CASING_DELAY[weaponId] ?? 0.32) * jitter(0.1),
+      wet: 0.5, sourceZone: findReverbZone(this.zones, shotPos)?.type ?? 'outdoor', refDistance: 2, tag: `casing ${surface}`,
     });
   }
 
-  playWeaponAction(weaponId: string, action: 'reload' | 'dry_fire', position: THREE.Vector3): void {
+  /** 子彈從耳邊飛過 */
+  playFlyby(position: THREE.Vector3, distance: number): void {
+    this.play({
+      key: 'weapons.bullet_flyby', volume: Math.min(1, 1.1 - distance * 0.3) * jitter(0.1), rate: jitter(0.12),
+      position: position.clone(), wet: 0.25, refDistance: 1.5, tag: `flyby ${distance.toFixed(1)}m`,
+    });
+  }
+
+  private alertGlobal = -99;
+  private alertEach = new Map<string, number>();
+  private hurtGlobal = -99;
+
+  /** 敵人的聲音（有位置、走該區的回音）。alert 有全域與個別冷卻 */
+  playEnemyVoice(kind: 'hurt' | 'death' | 'alert', position: THREE.Vector3, enemyId: string): void {
+    const now = this.ctx?.currentTime ?? 0;
+    if (kind === 'alert') {
+      if (now - this.alertGlobal < ALERT_COOLDOWN) return;
+      if (now - (this.alertEach.get(enemyId) ?? -99) < ALERT_COOLDOWN_EACH) return;
+      this.alertGlobal = now;
+      this.alertEach.set(enemyId, now);
+    } else if (kind === 'hurt') {
+      if (now - this.hurtGlobal < 0.12) return;
+      this.hurtGlobal = now;
+    }
     const zone = findReverbZone(this.zones, position)?.type ?? 'outdoor';
+    // 每個敵人固定一個音高偏移，聽起來是不同的人
+    let h = 0;
+    for (let i = 0; i < enemyId.length; i++) h = (h * 31 + enemyId.charCodeAt(i)) % 97;
+    const voiceRate = 0.9 + (h / 97) * 0.22;
+    this.play({
+      key: `enemy.${kind}`, volume: kind === 'alert' ? 1 : kind === 'death' ? 1 : 0.8, rate: voiceRate * jitter(0.05),
+      position: position.clone(), wet: 0.9, sourceZone: zone, refDistance: 6, tag: `enemy ${kind} ${enemyId}`,
+    });
+  }
+
+  /** 命中標記音；擊殺多一聲上揚的確認音 */
+  playHitMarker(zone: 'head' | 'body' | 'limb', killed: boolean): void {
+    this.play({ key: 'ui.select', volume: killed ? 0.5 : 0.3, rate: zone === 'head' ? 1.7 : killed ? 1.4 : 1.15, group: 'ui', tag: `hit ${zone}` });
+    if (killed) this.play({ key: 'ui.confirm', volume: 0.45, rate: 1.55, group: 'ui', delay: 0.06, tag: 'kill confirm' });
+  }
+
+  /** 治療音：開始（繃帶摩擦聲）、完成（上揚的確認）、取消 */
+  playHeal(phase: 'start' | 'done' | 'cancel'): void {
+    if (phase === 'start') {
+      this.play({ key: 'ui.equip', volume: 0.6, rate: 0.8, group: 'ui', tag: 'heal start' });
+      this.play({ key: 'sfx.search_rummage', volume: 0.5, rate: 1.35, group: 'ui', delay: 0.1, tag: 'heal rustle' });
+    } else if (phase === 'done') {
+      this.play({ key: 'ui.confirm', volume: 0.6, rate: 1.25, group: 'ui', tag: 'heal done' });
+      this.play({ key: 'ui.pickup', volume: 0.5, rate: 0.8, group: 'ui', delay: 0.12, tag: 'heal done 2' });
+    } else this.play({ key: 'ui.back', volume: 0.4, group: 'ui', tag: 'heal cancel' });
+  }
+
+  private tmpCasing = new THREE.Vector3();
+
+  // ------------------------------------------------------------ 地圖環境音（設定在 RaidMap.ambience）
+  private mapAmb: MapAmbienceRunner | null = null;
+
+  startMapAmbience(cfg: MapAmbience | undefined, duration: number): void {
+    this.stopMapAmbience();
+    if (cfg) this.mapAmb = new MapAmbienceRunner(this as unknown as AmbienceHost, cfg, duration);
+  }
+
+  stopMapAmbience(): void {
+    this.mapAmb?.stop();
+    this.mapAmb = null;
+  }
+
+  /** 每個畫面呼叫（listener 位置由 updateListener 更新） */
+  updateMapAmbience(dt: number): void {
+    this.mapAmb?.update(dt, this.listenerPos, this.zoneType);
+  }
+
+  /** AmbienceHost：建立循環音層（接到環境音混音）；沒有 ctx 或素材未就緒回傳 null */
+  loopLayer(key: string): { setGain(g: number): void; stop(): void } | null {
+    const ctx = this.ctx;
+    const buf = this.banks.get(key)?.buffers[0];
+    if (!ctx || !buf || !this.ambientGroup) return null;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    src.connect(gain).connect(this.ambientGroup);
+    src.start(0, Math.random() * buf.duration);
+    return {
+      setGain: (g) => gain.gain.setTargetAtTime(g, ctx.currentTime, 0.35),
+      stop: () => {
+        gain.gain.setTargetAtTime(0, ctx.currentTime, 0.2);
+        window.setTimeout(() => { try { src.stop(); } catch { /* 已停止 */ } src.disconnect(); gain.disconnect(); }, 900);
+      },
+    };
+  }
+
+  playWeaponAction(weaponId: string, action: 'reload' | 'dry_fire' | 'pump', position: THREE.Vector3): void {
+    const zone = findReverbZone(this.zones, position)?.type ?? 'outdoor';
+    if (action === 'pump') {
+      // 霰彈槍上膛：synth 的「喀—嚓」加一小段降速截短的 reload 素材（金屬滑動感）
+      this.play({ key: 'weapons.shotgun_pump', volume: 0.85 * jitter(0.06), rate: jitter(0.04), position, wet: 0.5, sourceZone: zone, refDistance: 4, tag: `pump ${weaponId}` });
+      return;
+    }
     this.play({
       key: action === 'reload' ? 'weapons.reload' : 'weapons.dry_fire',
       volume: (action === 'reload' ? 0.7 : 0.8) * jitter(0.06),
@@ -532,6 +685,16 @@ export class AudioManager implements SoundPlayer {
       node = lp;
     }
 
+    if (o.highshelf) {
+      const hs = ctx.createBiquadFilter();
+      hs.type = 'highshelf';
+      hs.frequency.value = 3500;
+      hs.gain.value = o.highshelf;
+      node.connect(hs);
+      nodes.push(hs);
+      node = hs;
+    }
+
     const vol = ctx.createGain();
     vol.gain.value = volume;
     node.connect(vol);
@@ -572,12 +735,13 @@ export class AudioManager implements SoundPlayer {
       this.voices = this.voices.filter((v) => v !== voice);
       for (const n of nodes) n.disconnect();
     };
-    src.start();
+    src.start(o.delay ? ctx.currentTime + o.delay : 0);
 
     this.record({
       t: +ctx.currentTime.toFixed(3), key: o.key, source: bank.source, variant: idx, name: bank.names[idx],
       volume: +volume.toFixed(3), rate: +rate.toFixed(3), lowpass: o.lowpass ?? null, positional: !!pos,
       wet: +wetAmt.toFixed(2), zone: o.sourceZone ? `source:${o.sourceZone}` : `listener:${this.zoneType}`, tag: o.tag,
+      highshelf: o.highshelf ?? null, delay: o.delay ?? 0,
     });
   }
 
@@ -622,6 +786,7 @@ export class AudioManager implements SoundPlayer {
       reverb: this.reverb?.debugState() ?? null,
       reverbParams: ZONE_PARAMS,
       ambience: this.ambience?.debugState() ?? null,
+      mapAmbience: this.mapAmb?.debugState() ?? null,
     };
   }
 

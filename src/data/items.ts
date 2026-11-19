@@ -49,6 +49,10 @@ const BASE_ITEMS: ItemDef[] = [
   { id: 'pearl_string', name: '南洋珍珠串', desc: '顆顆圓潤的珍珠，不知哪位船東的收藏。', category: 'valuable', weight: 0.2, maxStack: 2, priceFuture: 1500, rarity: 'uncommon', icon: { glyph: '⚪', color: '#f5f5f4' }, eras: H },
   { id: 'diamond', name: '裸鑽（1 克拉）', desc: '附證書的裸鑽，走私貨的可能性很高。', category: 'valuable', weight: 0.02, maxStack: 3, priceFuture: 4200, rarity: 'legendary', icon: { glyph: '💠', color: '#a5f3fc' }, eras: H },
 
+  // ---- 貨幣（時代商人使用） ----
+  // 一張 = 1 元。帶回未來每張約值 ₵1，所以商人那邊賺到的錢要活著帶回來才算數
+  { id: 'old_ntd', name: '舊台幣', desc: '1990 年代流通的新台幣。時代商人只收這個；帶回未來還能換一點信用點。', category: 'currency', weight: 0.0008, maxStack: 5000, priceFuture: 1, rarity: 'common', icon: { glyph: '💵', color: '#86efac' }, eras: H },
+
   // ---- 雜物 ----
   { id: 'scrap_metal', name: '廢鐵零件', desc: '重量不輕、賣不了多少錢。', category: 'junk', weight: 1.5, maxStack: 8, priceFuture: 30, rarity: 'common', icon: { glyph: '⚙', color: '#78716c' } },
   { id: 'wire_roll', name: '舊電線', desc: '纏成一團的銅線。', category: 'junk', weight: 0.6, maxStack: 8, priceFuture: 45, rarity: 'common', icon: { glyph: '➰', color: '#f97316' } },
@@ -64,7 +68,7 @@ export const ITEMS: Readonly<Record<string, ItemDef>> = Object.fromEntries(ITEM_
 
 export const CATEGORY_NAMES: Record<ItemDef['category'], string> = {
   weapon: '武器', ammo: '彈藥', armor: '護甲', backpack: '背包', medical: '醫療',
-  chronite: '時晶', antique: '古董', future_goods: '未來商品', valuable: '貴重品', junk: '雜物',
+  chronite: '時晶', antique: '古董', future_goods: '未來商品', valuable: '貴重品', junk: '雜物', currency: '貨幣',
 };
 
 export const RARITY_NAMES: Record<ItemDef['rarity'], string> = {

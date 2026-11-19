@@ -31,6 +31,8 @@ export interface RaidState {
   duration: number;
   /** 出發時身上（背包 + 保險袋 + 裝備）每種物品的數量，結算時用來算帶回了什麼 */
   snapshot: Record<string, number>;
+  /** 時代商人本場的交易紀錄（庫存由 startedAt 決定，這裡只記已經發生的數量） */
+  trade?: { bought: Record<string, number>; sold: Record<string, number> };
 }
 
 export interface Profile {
@@ -87,7 +89,11 @@ export function upgradeValue(p: Pick<Profile, 'upgrades'>, id: UpgradeId): numbe
 export const stashCapacity = (p: Profile): number => upgradeValue(p, 'stash');
 export const secureCapacity = (p: Profile): number => upgradeValue(p, 'secure');
 export const safeCapacity = (p: Profile): number => upgradeValue(p, 'safe');
-export const raidDuration = (p: Profile): number => upgradeValue(p, 'stabilizer');
+/** 穩定器升級帶來的額外秒數（基礎 300 秒之上） */
+export const STABILIZER_BASE = 300;
+export const stabilizerBonus = (p: Pick<Profile, 'upgrades'>): number => upgradeValue(p, 'stabilizer') - STABILIZER_BASE;
+/** Raid 停留時間 = 時代基礎時間 + 穩定器加成；baseDuration 省略時用舊行為（300 秒基礎） */
+export const raidDuration = (p: Pick<Profile, 'upgrades'>, baseDuration = STABILIZER_BASE): number => baseDuration + stabilizerBonus(p);
 export const searchTimeScale = (p: Profile): number => upgradeValue(p, 'search');
 
 export function carriedSpec(p: Pick<Profile, 'equipment'>): { slots: number; maxWeight: number } {
@@ -161,7 +167,7 @@ export function fitProfile(p: Profile): Profile {
   p.carried = cleanSlots(p.carried, carriedSpec(p).slots);
   p.stats = { ...{ raids: 0, extracts: 0, deaths: 0, extractedValue: 0, lostValue: 0 }, ...(p.stats ?? {}) };
   p.raid = p.raid && typeof p.raid === 'object' && p.raid.era ? p.raid : null;
-  if (p.raid) p.raid.snapshot ??= {};
+  if (p.raid) { p.raid.snapshot ??= {}; p.raid.trade ??= { bought: {}, sold: {} }; }
   p.pendingResult ??= null;
   p.version = PROFILE_VERSION;
   return p;

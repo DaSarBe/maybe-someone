@@ -113,3 +113,24 @@ public/assets/            models/ sounds/ sprites/ textures/ + CREDITS.md + mani
 - **敵人 AI**（`ai/`）：`Brain.ts` 是純邏輯狀態機（巡邏 / 警戒 / 追擊 / 攻擊 / 搜索 / 死亡），`Perception.ts` 是視覺（發現值累積）與聽覺（腳步聲半徑 = 強度 × 地面材質響度）的公式，
   `Nav.ts` 是 A*，`NavBuilder.ts` 可在靜態碰撞上自動產生導航圖，`Enemy.ts` 負責移動、射擊、動畫，`EnemyManager.ts` 負責生成、事件分派、LOD（遠處降低 AI 與動畫更新頻率）。
 - 敵人數值與掉落在 `data/enemies.ts`；武器手感（散佈、瞄準 FOV）在 `data/weaponHandling.ts`；醫療品在 `data/medical.ts`。
+
+## 8. M4c 整合約定
+
+- **地圖載入**：`maps/index.ts` 的 harbor_1990 用動態 import（獨立 chunk，不進主 bundle）；測試地圖用 `?scene=raid&map=test`（基礎 5 分鐘）。`RaidMap.ownsLighting` = true 時 RaidScene 不呼叫 `setupLighting`（光源、霧、天空在地圖 root 內）；`RaidMap.lightAt(pos)` 提供敵人感知用的亮度（harbor：室內外底值 + 點光源距離衰減）；`RaidMap.ambience` 設定地圖專屬環境音（浪聲定位、海鷗、遠方汽笛），由 `AudioManager.startMapAmbience` 執行。
+- **時空穩定度時間** = 時代基礎時間（`eras.ts baseDuration`，harbor_1990 = 12 分鐘）+ 穩定器升級加成（每級 +45 秒）；測試地圖 5 分鐘。
+- **槍械模型**：`combat/WeaponModels.ts` 載入 Quaternius OBJ+MTL，MTL 全是同一個灰色，所以依材質名稱重新上色並烤進頂點色，合併成最多 2 個 mesh（前段 + 槍托，瞄準時隱藏槍托），平面法線。槍口座標是火光與曳光彈的起點。載入失敗退回方塊槍。
+- **音效**：`enemy` 類別在 p1 sprite；敵人用 `enemyVoice` 事件（受傷 / 死亡 / 發現玩家，alert 全場冷卻 4.5 秒、同一個敵人 15 秒）；`bulletFlyby`（敵人打偏且經過玩家 2m 內）、`playerHurt.armor`（護甲吸收 → `impacts.player_armor`）；`casing`（依地面材質變化）、`player_armor`、`bullet_flyby`、`shotgun_boom`、`shotgun_pump` 由 Synth 合成。衝鋒槍 = pistol_fire 加快 30% + 高頻擱架 +7dB；霰彈槍 = rifle_fire 降到 0.62 倍 + 合成低頻爆破層，開槍後 0.42 秒自動上膛（pump）。見 `AudioManager.SHOT_LAYERS`。
+
+### 時代商人（漁市場「時代商行」）
+核心特色：**把未來商品帶去過去賣**。貨幣是物品「舊台幣」`old_ntd`（類別 currency，1 張 = 1 元，可堆疊 5000、每張 0.0008 kg，帶回未來每張值 ₵1），只在背包裡流通，死亡就沒了。全部交易走 `EconomyService.traderSell / traderBuy`（驗證、失敗整筆回滾）；資料在 `data/traders.ts`，定價在 `economy/Trader.ts`。
+
+| 項目 | 規則 |
+|---|---|
+| 收購未來商品 | `pricePast × 0.85`（電池 765、凝膠 1190、晶片 3060、纖維 1445），在未來買價約 224 / 336 / 910 / 420，約 3.4 倍 |
+| 收購額度 | 每種物品每場前 3 件（稀有的 2 件）原價，之後每件只付 35%（市場飽和） |
+| 收購其他物品 | 未來售價 × 0.2，前 6 件，之後 35% |
+| 商品 | 每場依「時代 + Raid 開始時間」為種子，從商品表隨機挑（各有出現機率與庫存範圍）：古董約為未來售價的 75%、時晶碎片 NT$900（比未來賣價貴，少量）、當地彈藥、醫療品、雜貨 |
+| 庫存 | 已買 / 已賣的數量記在 `raid.trade`，重新整理不會重置庫存；Raid 結束後清除 |
+| 子彈 | 打商人只播放命中聲（`userData.flesh` 的隱形圓柱），商人不會死；敵人只以玩家為目標 |
+
+一趟的獲利：帶 3 電池 + 3 凝膠 + 2 晶片（成本約 ₵4,800，重 3.4 kg），在商人處換得約 NT$12,000；再用其中一部分買古董（帶回未來約 +30%）。扣掉成本，一趟約 +₵8,000～11,000，但舊台幣放在背包，死亡全失。

@@ -5,7 +5,7 @@ import { Game } from './core/Game';
 import { GreyboxScene } from './world/GreyboxScene';
 import { HubScene } from './world/HubScene';
 import { RaidScene } from './world/RaidScene';
-import { getRaidMapLoader } from './world/maps';
+import { TEST_MAP_ID, getRaidMapLoader } from './world/maps';
 import { DEFAULT_ERA } from './data/eras';
 
 const params = new URLSearchParams(location.search);
@@ -24,10 +24,16 @@ if (params.has('debug')) {
 
 // 除錯 HUD 只在 ?debug=1 或 ?hud=1 時顯示（?hud=0 可強制關閉）
 const showHud = params.get('hud') === '1' || (params.has('debug') && params.get('hud') !== '0');
+let testMapOnce = params.get('scene') === 'raid' && params.get('map') === 'test';
 game.scenes = {
   hub: () => new HubScene({ showHud }),
   // 時代 id → 地圖載入器在 world/maps/index.ts；從時光機出發時 startRaid 已先記下時代
-  raid: () => new RaidScene(getRaidMapLoader(game.economy.profile.raid?.era ?? DEFAULT_ERA), { showHud }),
+  // ?map=test：用小型測試地圖（?scene=raid&map=test）；從時光機出發的一律用該時代的正式地圖
+  raid: () => {
+    const testMap = testMapOnce;
+    testMapOnce = false; // 只有第一次（URL 直接進入）用測試地圖
+    return new RaidScene(getRaidMapLoader(game.economy.profile.raid?.era ?? DEFAULT_ERA, testMap ? TEST_MAP_ID : null), { showHud, testMap });
+  },
   greybox: () => new GreyboxScene({ showHud, onExit: () => game.setScene(game.scenes.hub()) }),
 };
 

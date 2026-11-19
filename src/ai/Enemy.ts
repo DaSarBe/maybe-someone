@@ -190,6 +190,7 @@ export class Enemy {
     this.armorDur = r.durAfter;
     this.hp -= r.damage;
     if (this.hp <= 0) { this.die(); return { killed: true, dealt: r.damage }; }
+    this.voice('hurt', 0.5);
     this.brain.damaged(this.ctx.player.feet);
     this.afterSpotted();
     if (r.damage >= 8 && this.hitCd <= 0 && this.anim?.hasHit) {
@@ -205,6 +206,7 @@ export class Enemy {
     if (this.dead) return;
     this.dead = true;
     this.hp = 0;
+    this.voice('death', 0);
     this.brain.kill();
     this.anim?.playOnce('death');
     this.speedNow = 0;
@@ -213,8 +215,24 @@ export class Enemy {
 
   /** 被命中或發現玩家後，通知同群組 */
   private afterSpotted(): void {
-    if (this.brain.consumeSpotted() && this.group) this.ctx.alertGroup(this.group, this.ctx.player.feet, this.id);
+    if (this.brain.consumeSpotted()) {
+      this.voice('alert', 0);
+      if (this.group) this.ctx.alertGroup(this.group, this.ctx.player.feet, this.id);
+    }
   }
+
+  /** 聲音事件（位置在頭部）；hurt 有個別冷卻，alert 的全域冷卻在 AudioManager */
+  private voice(kind: 'hurt' | 'death' | 'alert', cooldown: number): void {
+    if (kind !== 'death') {
+      const now = performance.now() / 1000;
+      const last = kind === 'hurt' ? this.voiceAt.hurt : this.voiceAt.alert;
+      if (now - last < cooldown) return;
+      if (kind === 'hurt') this.voiceAt.hurt = now; else this.voiceAt.alert = now;
+    }
+    this.ctx.bus.emit('enemyVoice', { kind, position: this.tmpV.set(this.pos.x, this.pos.y + this.def.height * 0.85, this.pos.z).clone(), enemyId: this.id });
+  }
+  private voiceAt = { hurt: -9, alert: -9 };
+  private tmpV = new THREE.Vector3();
 
   // ------------------------------------------------------------ 更新
   /** 由 EnemyManager 每個固定步長呼叫；依 LOD 累積到 interval 才真正執行 */
@@ -477,7 +495,7 @@ export class Enemy {
     const muzzle = this.muzzle(new THREE.Vector3());
     const aim = new THREE.Vector3(pl.feet.x, pl.feet.y + (pl.crouching ? 0.6 : 1.15), pl.feet.z);
     const dir = new THREE.Vector3().subVectors(aim, muzzle).normalize();
-    ctx.bus.emit('shot', { weaponId: this.weaponId, position: muzzle.clone(), direction: dir.clone(), shooter: this.id });
+    ctx.bus.emit('shot', { weaponId: this.weaponId, position: muzzle.clone(), direction: dir.clone(), shooter: this.id, surface: ctx.surfaceAt(this.pos) });
     ctx.fx.muzzleFlash(muzzle, 0.5);
 
     let p = accuracyAt(def.accuracy, dist);
@@ -497,13 +515,24 @@ export class Enemy {
         const miss = this.tmp.set(aim.x + Math.cos(a) * r, aim.y + (Math.random() - 0.4) * r, aim.z + Math.sin(a) * r);
         const d2 = new THREE.Vector3().subVectors(miss, muzzle).normalize();
         const hit = ctx.trace.cast(muzzle, d2, dist + 25);
+        const reach = hit ? hit.distance : dist + 25;
+        this.flyby(muzzle, d2, reach);
         if (hit) {
-          ctx.fx.impact(hit.point, hit.normal, hit.surface);
+          ctx.fx.impact(hit.point, hit.normal, hit.flesh ? 'flesh' : hit.surface);
           ctx.fx.tracer(muzzle, hit.point, true);
-          if (!missEmitted) { missEmitted = true; ctx.bus.emit('impact', { surface: hit.surface, position: hit.point.clone(), normal: hit.normal.clone() }); }
+          if (!missEmitted) { missEmitted = true; ctx.bus.emit('impact', { surface: hit.surface, position: hit.point.clone(), normal: hit.normal.clone(), flesh: hit.flesh || undefined }); }
         } else ctx.fx.tracer(muzzle, muzzle.clone().addScaledVector(d2, 80), true);
       }
     }
+  }
+
+  /** 子彈（沿 dir 飛 reach 公尺）經過玩家 2m 內：發出 bulletFlyby */
+  private flyby(origin: THREE.Vector3, dir: THREE.Vector3, reach: number): void {
+    const eye = this.ctx.player.eye;
+    const t = Math.min(reach, Math.max(0, (eye.x - origin.x) * dir.x + (eye.y - origin.y) * dir.y + (eye.z - origin.z) * dir.z));
+    const px = origin.x + dir.x * t, py = origin.y + dir.y * t, pz = origin.z + dir.z * t;
+    const d = Math.hypot(px - eye.x, py - eye.y, pz - eye.z);
+    if (d <= 2 && t > 3) this.ctx.bus.emit('bulletFlyby', { position: new THREE.Vector3(px, py, pz), distance: d });
   }
 
   // ------------------------------------------------------------ 移動

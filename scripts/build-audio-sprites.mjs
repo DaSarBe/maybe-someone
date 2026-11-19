@@ -33,7 +33,7 @@ const AAC_KBPS_PER_CH = Number(process.env.AAC_K ?? 64);
 /** 優先順序：p0 先上線（腳步、介面），p1 其次（武器、命中、特效），p2 最後（檔案最大的環境音） */
 export const GROUPS = {
   p0: ['footsteps', 'ui'],
-  p1: ['weapons', 'impacts', 'sfx'],
+  p1: ['weapons', 'impacts', 'sfx', 'enemy'],
   p2: ['ambient'],
 };
 

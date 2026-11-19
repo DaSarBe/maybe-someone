@@ -4,7 +4,7 @@ export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 
 export type Category =
   | 'weapon' | 'ammo' | 'armor' | 'backpack' | 'medical'
-  | 'chronite' | 'antique' | 'future_goods' | 'valuable' | 'junk';
+  | 'chronite' | 'antique' | 'future_goods' | 'valuable' | 'junk' | 'currency';
 
 export interface ItemDef {
   id: string;

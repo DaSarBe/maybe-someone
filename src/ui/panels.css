@@ -229,3 +229,18 @@
 @media (max-width: 760px) {
   .panel-body.three { grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(150px, .8fr); gap: 6px; padding: 6px; }
 }
+
+/* ---- 時代商人 ---- */
+.panel.trader { border-color: #6b4c2e; box-shadow: 0 0 40px rgba(255,190,90,.12), inset 0 0 0 1px rgba(255,190,90,.1); }
+.panel.trader .panel-head { background: linear-gradient(90deg, rgba(255,190,90,.16), rgba(255,61,203,.04) 70%, transparent); }
+.panel.trader .panel-head h2 { text-shadow: 0 0 10px rgba(255,190,90,.6); }
+.ntd-chip { color: #b6f5c4; border-color: rgba(134,239,172,.5); }
+.price.ntd { color: #b6f5c4; }
+.shop-row.dim { opacity: .45; }
+.trader-note { margin: 0; font-size: 12px; }
+
+.era-info { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: rgba(53,225,255,.05); display: flex; flex-direction: column; gap: 4px; }
+.era-info h3 { margin: 0; font-size: 15px; color: #bff7ff; }
+.era-info p { margin: 0; font-size: 12px; line-height: 1.5; opacity: .85; }
+.era-rec { font-size: 12px; } .era-rec ul { margin: 2px 0 0; padding-left: 18px; opacity: .85; } .era-rec li { line-height: 1.5; }
+.timemachine .col-b .btn.go { position: sticky; bottom: 0; flex: 0 0 auto; }

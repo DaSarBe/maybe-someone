@@ -301,6 +301,71 @@ const reload: Recipe = {
   },
 };
 
+
+/** 彈殼落地：金屬「叮」，彈跳 2～3 次，一次比一次輕、音高略變 */
+const casing: Recipe = {
+  duration: 0.5, peak: 0.7, variants: 4,
+  build(b) {
+    const f = b.rng.range(3900, 5200);
+    let t = 0, amp = 1;
+    for (let i = 0; i < 3; i++) {
+      b.burst({ t, type: 'highpass', freq: 3500, peak: 0.5 * amp, attack: 0.0003, decay: 0.006 });
+      b.tone({ t, freq: f * (1 + i * 0.03), peak: 0.5 * amp, attack: 0.0004, decay: 0.07 - i * 0.015 });
+      b.tone({ t, freq: f * 1.9, peak: 0.2 * amp, attack: 0.0004, decay: 0.04 });
+      b.burst({ t, type: 'bandpass', freq: f, q: 18, peak: 0.3 * amp, attack: 0.0005, decay: 0.08 });
+      t += b.rng.range(0.06, 0.11) * (1 - i * 0.25);
+      amp *= 0.45;
+    }
+  },
+};
+
+/** 子彈從耳邊飛過：尖銳的裂響 + 往下掃的「咻」 */
+const bulletFlyby: Recipe = {
+  duration: 0.45, peak: 0.8, variants: 3,
+  build(b) {
+    b.burst({ type: 'highpass', freq: 3500, peak: 0.7, attack: 0.0005, decay: 0.012 });
+    b.burst({ type: 'bandpass', freq: b.rng.range(4200, 5200), freqEnd: 900, q: 2.2, peak: 1, attack: 0.025, decay: 0.2 });
+    b.tone({ freq: b.rng.range(2300, 2800), freqEnd: 650, peak: 0.16, attack: 0.01, decay: 0.16, type: 'sawtooth' });
+  },
+};
+
+/** 子彈打在護甲上：悶重的金屬撞擊（比 metal 命中悶、沒有長鈴聲） */
+const playerArmor: Recipe = {
+  duration: 0.4, peak: 0.85, variants: 3,
+  build(b) {
+    b.tone({ freq: b.rng.range(140, 175), freqEnd: 60, peak: 1, attack: 0.002, decay: 0.12 });
+    b.burst({ type: 'bandpass', freq: b.rng.range(900, 1300), q: 1.4, peak: 0.8, attack: 0.001, decay: 0.06 });
+    b.burst({ type: 'highpass', freq: 2600, peak: 0.45, attack: 0.0004, decay: 0.01 });
+    const base = b.rng.range(620, 780);
+    [1, 2.4, 4.1].forEach((r, i) => b.tone({ freq: base * r, peak: 0.28 / (i + 1), attack: 0.001, decay: 0.12 / (1 + i * 0.5) }));
+  },
+};
+
+/** 霰彈槍的低頻爆破層（疊在降調的 rifle_fire 上） */
+const shotgunBoom: Recipe = {
+  duration: 0.9, peak: 0.95, variants: 3,
+  build(b) {
+    b.tone({ freq: b.rng.range(95, 115), freqEnd: 32, peak: 1, attack: 0.002, decay: 0.34 });
+    b.burst({ type: 'lowpass', freq: 800, freqEnd: 200, q: 0.7, peak: 1, attack: 0.002, decay: 0.28 });
+    b.burst({ type: 'bandpass', freq: 1400, q: 0.8, peak: 0.5, attack: 0.001, decay: 0.07 });
+  },
+};
+
+/** 霰彈槍上膛（泵動）：前推「喀」+ 後拉「嚓」，中間有金屬滑動聲 */
+const shotgunPump: Recipe = {
+  duration: 0.6, peak: 0.8, variants: 3,
+  build(b) {
+    const clack = (t: number, f: number, amp: number) => {
+      b.burst({ t, type: 'bandpass', freq: f, q: 3, peak: amp, attack: 0.0005, decay: 0.025 });
+      b.burst({ t, type: 'highpass', freq: 3000, peak: amp * 0.5, attack: 0.0003, decay: 0.008 });
+      b.tone({ t, freq: f * 0.35, peak: amp * 0.6, attack: 0.0005, decay: 0.05 });
+    };
+    clack(0.0, b.rng.range(1100, 1400), 0.8);
+    b.burst({ t: 0.04, type: 'bandpass', freq: 900, freqEnd: 2400, q: 3, peak: 0.18, attack: 0.02, decay: 0.12 });
+    clack(b.rng.range(0.2, 0.24), b.rng.range(1500, 1900), 1.0);
+  },
+};
+
 // ---------------------------------------------------------------- 命中
 /** 水泥：短促的碎裂聲（裂響 + 悶響 + 幾顆碎屑） */
 const concreteImpact: Recipe = {
@@ -426,6 +491,11 @@ export const RECIPES: Record<string, Recipe> = {
   'weapons.pistol_fire': shotRecipe(false),
   'weapons.rifle_fire': shotRecipe(true),
   'weapons.reload': reload,
+  'weapons.casing': casing,
+  'weapons.bullet_flyby': bulletFlyby,
+  'weapons.shotgun_boom': shotgunBoom,
+  'weapons.shotgun_pump': shotgunPump,
+  'impacts.player_armor': playerArmor,
   'impacts.concrete': concreteImpact,
   'impacts.metal': metalImpact,
   'impacts.wood': woodImpact,

@@ -1,4 +1,4 @@
-import { ERAS } from '../../data/eras';
+import { ERAS, getEra } from '../../data/eras';
 import { getItem } from '../../data/items';
 import type { ItemStack } from '../../items/Inventory';
 import { btn, clear, el, fmtCredits, fmtTime } from '../dom';
@@ -62,8 +62,24 @@ export class TimeMachinePanel implements Panel {
     const all = [...carried, ...secure, ...equipped.map((e) => e.stack)];
     const total = eco.valueOfAll(all);
 
+    const era = getEra(this.selected);
+    if (era?.info) {
+      const box = el('div', 'era-info');
+      box.dataset.era = era.id;
+      box.append(el('h3', '', era.info.mapName));
+      for (const line of era.info.brief) box.appendChild(el('p', '', line));
+      const rec = el('div', 'era-rec');
+      rec.appendChild(el('b', '', '建議裝備'));
+      const ul = el('ul');
+      for (const r of era.info.recommended) ul.appendChild(el('li', '', r));
+      rec.appendChild(ul);
+      box.appendChild(rec);
+      this.colB.appendChild(box);
+    }
     this.colB.appendChild(el('div', 'col-head', '出發前確認'));
-    this.colB.appendChild(el('div', 'stab-line', `預計停留 ${fmtTime(eco.raidDurationSec())}（時空穩定度）`));
+    const stay = el('div', 'stab-line', `預計停留 ${fmtTime(eco.raidDurationSec(this.selected))}（時空穩定度；基礎 ${fmtTime(era?.baseDuration ?? 300)}，穩定器升級會再延長）`);
+    stay.dataset.stay = String(eco.raidDurationSec(this.selected));
+    this.colB.appendChild(stay);
     const list = el('div', 'check-list');
     if (all.length === 0) list.appendChild(el('p', 'hint', '你身上沒有任何物品。\n可以空手出發，但最好先去倉庫櫃拿點裝備。'));
     for (const e of equipped) list.appendChild(this.listRow(e.stack, `裝備 ・ ${EQUIP_LABELS[e.slot]}`));

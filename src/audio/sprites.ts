@@ -7,13 +7,13 @@
 export type SpriteFormat = 'ogg' | 'm4a';
 export type SpriteGroupId = 'p0' | 'p1' | 'p2';
 
-/** 載入順序：p0 腳步與介面、p1 武器與命中與特效、p2 環境音（最大，最後） */
+/** 載入順序：p0 腳步與介面、p1 武器、命中、特效與敵人聲音、p2 環境音（最大，最後） */
 export const SPRITE_GROUPS: readonly SpriteGroupId[] = ['p0', 'p1', 'p2'];
 
 /** 各組包含的 manifest 類別（要和 scripts/build-audio-sprites.mjs 的 GROUPS 一致，有單元測試把關） */
 export const GROUP_CATEGORIES: Record<SpriteGroupId, readonly string[]> = {
   p0: ['footsteps', 'ui'],
-  p1: ['weapons', 'impacts', 'sfx'],
+  p1: ['weapons', 'impacts', 'sfx', 'enemy'],
   p2: ['ambient'],
 };
 

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { ViewmodelStyle } from '../data/weaponHandling';
+import { getWeaponModel } from './WeaponModels';
 
-/** 第一人稱武器模型。目前全部用程式產生的低多邊形方塊；之後有 glb 就在 buildWeapon 裡改成載入模型 */
+/** 第一人稱武器模型。優先用 Quaternius 的 OBJ 模型（combat/WeaponModels.ts），載入失敗退回程式產生的方塊槍 */
 
 interface Built {
   group: THREE.Group;
@@ -9,6 +10,8 @@ interface Built {
   muzzle: THREE.Vector3;
   /** 瞄準時，準星需要落在畫面中心：模型座標系的準星高度 */
   sightY: number;
+  /** 瞄準時模型原點的深度（相機前方，公尺，負值）；省略 = -0.19 */
+  adsZ?: number;
   /** 瞄準時隱藏的部件（槍托離鏡頭太近會擋住畫面） */
   stocks?: THREE.Mesh[];
 }
@@ -41,8 +44,23 @@ function hands(g: THREE.Group, rightZ: number, leftZ: number): void {
   box(g, SLEEVE, 0.08, 0.08, 0.36, -0.07, -0.1, leftZ + 0.22, -0.3);
 }
 
+/** 手與手臂放在模型的握把與護木位置 */
+function handsAt(g: THREE.Group, grip: THREE.Vector3, fore: THREE.Vector3): THREE.Mesh[] {
+  box(g, SKIN, 0.055, 0.07, 0.09, grip.x, grip.y - 0.012, grip.z);
+  const a = box(g, SLEEVE, 0.075, 0.075, 0.34, grip.x + 0.03, grip.y - 0.06, grip.z + 0.2, -0.25);
+  box(g, SKIN, 0.07, 0.06, 0.1, fore.x, fore.y - 0.035, fore.z);
+  const b = box(g, SLEEVE, 0.08, 0.08, 0.36, fore.x - 0.07, fore.y - 0.1, fore.z + 0.22, -0.3);
+  return [a, b]; // 袖子：瞄準時隱藏，不擋住視線
+}
+
 export function buildWeapon(style: ViewmodelStyle): Built {
   const g = new THREE.Group();
+  const model = getWeaponModel(style);
+  if (model) {
+    g.add(model.group);
+    const sleeves = handsAt(g, model.grip, model.fore);
+    return { group: g, muzzle: model.muzzle.clone(), sightY: model.sightY, stocks: [...model.stocks, ...sleeves], adsZ: -0.3 };
+  }
   const dark = '#2b2f36', mid = '#454c57', light = '#6b7482', wood = '#7a5230';
   switch (style) {
     case 'pistol': {
@@ -232,8 +250,8 @@ export class Viewmodel {
     const bobY = Math.abs(Math.sin(this.bobPhase)) * bobAmp * 1.2;
     const idle = Math.sin(this.time * 1.6) * 0.0015 * (1 - f.ads);
 
-    const hip = new THREE.Vector3(0.14, -0.14, -0.34);
-    const adsPos = new THREE.Vector3(0, -this.current.sightY * VM_SCALE - 0.01, -0.19);
+    const hip = new THREE.Vector3(0.125, -0.115, -0.38);
+    const adsPos = new THREE.Vector3(0, -this.current.sightY * VM_SCALE - 0.01, this.current.adsZ ?? -0.19);
     const p = hip.lerp(adsPos, f.ads);
     const sprintPose = f.sprinting && moving ? 1 : 0;
     for (const m of this.current.stocks ?? []) m.visible = f.ads < 0.6;

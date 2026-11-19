@@ -6,6 +6,8 @@ export interface WorldHit {
   point: THREE.Vector3;
   normal: THREE.Vector3;
   surface: Surface;
+  /** 打中的是人（商人等）：只播放命中聲，沒有彈孔 */
+  flesh: boolean;
 }
 
 /** 對地圖 mesh 的射線（彈著點與材質）。玩家與敵人的子彈共用 */
@@ -22,6 +24,6 @@ export class WorldTrace {
     if (!hit) return null;
     const normal = hit.face ? this.n.copy(hit.face.normal).transformDirection(hit.object.matrixWorld).clone() : dir.clone().negate();
     if (normal.dot(dir) > 0) normal.negate();
-    return { distance: hit.distance, point: hit.point.clone(), normal, surface: getSurfaceAt(hit.object) };
+    return { distance: hit.distance, point: hit.point.clone(), normal, surface: getSurfaceAt(hit.object), flesh: hit.object.userData.flesh === true };
   }
 }

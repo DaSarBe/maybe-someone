@@ -11,6 +11,10 @@ export interface PlayOpts {
   rate?: number;
   /** 低通濾波截止頻率（Hz），用來讓聲音更悶 */
   lowpass?: number;
+  /** 高頻擱架濾波（3.5kHz 以上增減的 dB）：正值 = 更亮更脆（衝鋒槍） */
+  highshelf?: number;
+  /** 延遲幾秒後才開始播放（彈殼落地、霰彈槍上膛） */
+  delay?: number;
   /** 世界座標；沒有或離聽者很近（本機玩家）時為非空間音 */
   position?: THREE.Vector3;
   group?: SoundGroup;
@@ -46,5 +50,7 @@ export interface PlayRecord {
   positional: boolean;
   wet: number;
   zone: string;
+  highshelf?: number | null;
+  delay?: number;
   tag?: string;
 }

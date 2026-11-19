@@ -56,6 +56,16 @@ export interface TraderSpot {
   yaw: number;
 }
 
+/** 地圖的環境音設定（只在有設定的地圖播放；AudioManager 不寫死地圖） */
+export interface MapAmbience {
+  /** 定位音源：浪聲。依玩家到這些點的最近距離決定音量（refDist 內全開，maxDist 外無聲） */
+  waves?: { points: THREE.Vector3[]; refDist: number; maxDist: number; volume: number };
+  /** 海鷗：室外時隨機間隔（秒）在遠處隨機方位播放 */
+  seagulls?: { interval: [number, number]; volume: number };
+  /** 遠方汽笛：每場 Raid 隨機響 count 次，落在 Raid 時間內的隨機時刻 */
+  shipHorn?: { count: [number, number]; volume: number; origin: THREE.Vector3; distance: [number, number] };
+}
+
 export interface RaidMap extends GameMap {
   eraId: string;
   /** 玩家抵達點（時光機出口），RaidScene 隨機挑一個 */
@@ -67,6 +77,18 @@ export interface RaidMap extends GameMap {
   trader?: TraderSpot;
   /** 地圖邊界（AI 與除錯用） */
   bounds: THREE.Box3;
+  /**
+   * 地圖自帶光源、霧、天空（root 內已經有）。true 時 RaidScene 不再呼叫 setupLighting，也不重複設霧。
+   * 省略或 false：RaidScene 套用預設的半球光 + 太陽光 + 霧。
+   */
+  ownsLighting?: boolean;
+  /**
+   * 某個世界座標的亮度 0..1（0 = 全黑，1 = 全亮；敵人用它判斷「暗處不容易發現玩家」）。
+   * 省略時 RaidScene 以回音區（室內外）近似。
+   */
+  lightAt?(pos: THREE.Vector3): number;
+  /** 環境音設定，省略 = 沒有地圖專屬環境音 */
+  ambience?: MapAmbience;
   /** 每幀更新（例如水面、燈光閃爍），可選 */
   update?(dt: number, elapsed: number): void;
 }

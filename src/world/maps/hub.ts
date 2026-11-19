@@ -75,41 +75,47 @@ export function buildHub(): GameMap {
   const b = new MapBuilder();
   const root = new THREE.Group();
   root.name = 'hub';
+  // 貼圖（scifi_floor / scifi_wall）：載入完成前先用純色；貼圖亮度由頂點色決定
+  const loader = new THREE.TextureLoader();
+  const base = import.meta.env.BASE_URL + 'assets/textures/';
+  b.useTexture('metal', loader.load(base + 'scifi_floor.png'), 4);
+  b.useTexture('tile', loader.load(base + 'scifi_floor.png'), 4);
+  b.useTexture('concrete', loader.load(base + 'scifi_wall.png'), 4);
 
   // 地板（金屬）與中央實驗區（磁磚）
-  b.boxMinMax('metal', '#1a2330', -X, -0.4, -Z, X, 0, Z);
-  b.boxMinMax('tile', '#222f40', -4.5, -0.01, -Z, 4.5, 0.03, -1.6);
-  // 牆、天花板
-  const wall = '#101821';
-  b.boxMinMax('metal', wall, -X - 0.4, -0.4, -Z - 0.4, X + 0.4, H, -Z);
-  b.boxMinMax('metal', wall, -X - 0.4, -0.4, Z, X + 0.4, H, Z + 0.4);
-  b.boxMinMax('metal', wall, -X - 0.4, -0.4, -Z, -X, H, Z);
-  b.boxMinMax('metal', wall, X, -0.4, -Z, X + 0.4, H, Z);
-  b.boxMinMax('metal', '#0b1017', -X - 0.4, H, -Z - 0.4, X + 0.4, H + 0.4, Z + 0.4);
+  b.boxMinMax('metal', '#c9d6e8', -X, -0.4, -Z, X, 0, Z);
+  b.boxMinMax('tile', '#dfe9f7', -4.5, -0.01, -Z, 4.5, 0.03, -1.6);
+  // 牆、天花板（concrete = 牆面貼圖；沒有人會踩在牆上，腳步聲不受影響）
+  const wall = '#b7c5da';
+  b.boxMinMax('concrete', wall, -X - 0.4, -0.4, -Z - 0.4, X + 0.4, H, -Z);
+  b.boxMinMax('concrete', wall, -X - 0.4, -0.4, Z, X + 0.4, H, Z + 0.4);
+  b.boxMinMax('concrete', wall, -X - 0.4, -0.4, -Z, -X, H, Z);
+  b.boxMinMax('concrete', wall, X, -0.4, -Z, X + 0.4, H, Z);
+  b.boxMinMax('concrete', '#8a9bb4', -X - 0.4, H, -Z - 0.4, X + 0.4, H + 0.4, Z + 0.4);
   // 牆面裝飾嵌板
   for (let i = -3; i <= 3; i++) {
-    b.boxMinMax('metal', '#16212d', i * 2.8 - 1.0, 0.9, -Z + 0.01, i * 2.8 + 1.0, 3.2, -Z + 0.12);
+    b.boxMinMax('concrete', '#d4deec', i * 2.8 - 1.0, 0.9, -Z + 0.01, i * 2.8 + 1.0, 3.2, -Z + 0.12);
   }
 
   // 倉庫櫃（西牆）：一排儲物櫃
-  b.boxMinMax('metal', '#243448', -X, 0, -3.3, -X + 1.0, 2.5, 3.5);
+  b.boxMinMax('metal', '#4a6a8e', -X, 0, -3.3, -X + 1.0, 2.5, 3.5);
   for (let z = -3.3; z < 3.5; z += 1.1) b.boxMinMax('metal', '#0f1722', -X + 1.0, 0.1, z + 0.52, -X + 1.03, 2.4, z + 0.58);
   // 黑市終端機（東牆後）
-  b.boxMinMax('metal', '#2b2230', X - 1.5, 0, -5.4, X, 1.0, -2.4);
+  b.boxMinMax('metal', '#5e4a6a', X - 1.5, 0, -5.4, X, 1.0, -2.4);
   b.box('metal', '#1a1420', X - 0.55, 1.45, -3.9, 0.3, 1.0, 2.4, { z: -0.25 });
   // 升級工作台（東牆前）
-  b.boxMinMax('metal', '#1d3328', X - 1.8, 0, 2.3, X, 0.95, 5.2);
+  b.boxMinMax('metal', '#3c6a50', X - 1.8, 0, 2.3, X, 0.95, 5.2);
   b.boxMinMax('metal', '#12201a', X - 1.8, 0.95, 2.3, X - 1.7, 2.2, 5.2);
   // 房間保險箱基座（西牆後）
-  b.boxMinMax('metal', '#2e1a2c', -X, 0, -6.6, -X + 1.6, 0.85, -4.2);
+  b.boxMinMax('metal', '#6a3a66', -X, 0, -6.6, -X + 1.6, 0.85, -4.2);
   // 時光機：兩根立柱 + 平台
-  b.boxMinMax('metal', '#1b2140', -2.9, 0, -Z, -2.1, 3.8, -Z + 1.3);
-  b.boxMinMax('metal', '#1b2140', 2.1, 0, -Z, 2.9, 3.8, -Z + 1.3);
-  b.boxMinMax('metal', '#1b2140', -2.9, 3.8, -Z, 2.9, 4.3, -Z + 1.3);
+  b.boxMinMax('metal', '#3a4a8a', -2.9, 0, -Z, -2.1, 3.8, -Z + 1.3);
+  b.boxMinMax('metal', '#3a4a8a', 2.1, 0, -Z, 2.9, 3.8, -Z + 1.3);
+  b.boxMinMax('metal', '#3a4a8a', -2.9, 3.8, -Z, 2.9, 4.3, -Z + 1.3);
   b.boxMinMax('metal_grate', '#2a3150', -2.2, 0.03, -Z + 1.3, 2.2, 0.12, -3.6);
   // 角落的木箱（裝飾兼擋路）
-  b.boxMinMax('metal', '#26303a', -X, 0, 6.2, -X + 1.8, 1.0, Z);
-  b.boxMinMax('metal', '#26303a', X - 1.8, 0, 6.4, X, 1.0, Z);
+  b.boxMinMax('metal', '#4c5e72', -X, 0, 6.2, -X + 1.8, 1.0, Z);
+  b.boxMinMax('metal', '#4c5e72', X - 1.8, 0, 6.4, X, 1.0, Z);
 
   const { group, meshes, collision } = b.build();
   root.add(group);

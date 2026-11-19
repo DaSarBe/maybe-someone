@@ -107,10 +107,10 @@ export class HubScene implements Scene {
   // ---------------------------------------------------------------- 建構
   private buildLights(): void {
     const s = this.scene;
-    s.background = new THREE.Color('#05080d');
-    s.fog = new THREE.Fog('#05080d', 14, 40);
-    s.add(new THREE.HemisphereLight('#7f9bc4', '#1a2230', 0.9));
-    const dir = new THREE.DirectionalLight('#9ec8ff', 0.5);
+    s.background = new THREE.Color('#0a1018');
+    s.fog = new THREE.Fog('#0a1018', 22, 60);
+    s.add(new THREE.HemisphereLight('#a9c2e6', '#3a4a60', 2.6));
+    const dir = new THREE.DirectionalLight('#bcd8ff', 1.1);
     dir.position.set(3, 8, 5);
     s.add(dir);
     const pl = (color: string, intensity: number, x: number, y: number, z: number, dist = 13) => {
@@ -118,12 +118,13 @@ export class HubScene implements Scene {
       l.position.set(x, y, z);
       s.add(l);
     };
-    pl('#5b7bff', 60, 0, 3.2, -5.2, 15);
-    pl('#35e1ff', 28, -7, 3.6, 0.2);
-    pl('#ffb23a', 26, 7, 3.2, -3.9);
-    pl('#4ade80', 24, 7, 3.2, 3.7);
-    pl('#ff3dcb', 26, -7, 3.2, -5.4);
-    pl('#35e1ff', 18, 0, 3.8, 5);
+    pl('#5b7bff', 70, 0, 3.2, -5.2, 16);
+    pl('#35e1ff', 40, -7, 3.6, 0.2, 15);
+    pl('#ffb23a', 38, 7, 3.2, -3.9, 15);
+    pl('#4ade80', 36, 7, 3.2, 3.7, 15);
+    pl('#ff3dcb', 36, -7, 3.2, -5.4, 15);
+    pl('#dfe9ff', 40, 0, 4.0, 0, 20);
+    pl('#35e1ff', 26, 0, 3.8, 5, 15);
   }
 
   private buildDecor(): void {
