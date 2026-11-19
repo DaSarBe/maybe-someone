@@ -111,7 +111,7 @@ export function buildHub(): GameMap {
   b.boxMinMax('metal', '#26303a', -X, 0, 6.2, -X + 1.8, 1.0, Z);
   b.boxMinMax('metal', '#26303a', X - 1.8, 0, 6.4, X, 1.0, Z);
 
-  const { group, meshes } = b.build();
+  const { group, meshes, collision } = b.build();
   root.add(group);
 
   // ---- 霓虹燈條（純視覺） ----
@@ -169,7 +169,7 @@ export function buildHub(): GameMap {
   const zone = { box: new THREE.Box3(new THREE.Vector3(-X, -1, -Z), new THREE.Vector3(X, H, Z)), type: 'indoor_large' as const, name: 'hub' };
   return {
     root,
-    collision: group,
+    collision,
     surfaceMeshes: meshes,
     reverbZones: [zone],
     spawn: { position: new THREE.Vector3(0, 0.05, 4.6), yaw: 0 },

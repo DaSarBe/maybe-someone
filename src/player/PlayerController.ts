@@ -17,8 +17,12 @@ const SPRINT_SPEED = 7.0;
 const CROUCH_SPEED = 1.9;
 const GRAVITY = 22;
 const JUMP_V = 6.8;
+const STEP_MIN = 0.05;      // 小於此高度的門檻/接縫不算台階，球體直接滾過去
 const STEP_H = 0.45;        // 可直接走上去的最大台階
 const SNAP_DIST = 0.4;      // 下樓梯/下坡時貼地距離
+const STEP_SMOOTH_TAU = 0.1;   // 上台階 / 貼地下階的鏡頭高度差，以此時間常數指數衰減（秒）
+const STEP_GRACE = 0.3;        // 剛上台階的最長寬限（秒）：重心越過邊緣、腳下偵測到踏面就會提早結束
+const SNAP_SMOOTH_MIN = 0.04;  // 貼地下降超過此高度才記入鏡頭平滑（避免斜坡上持續落後）
 const WALKABLE_NY = 0.7;    // 法線 y 大於此值視為可站立的地面
 const STRIDE: Record<StepIntensity, number> = { sprint: 1.7, walk: 2.0, crouch: 2.6 };
 
@@ -61,6 +65,11 @@ export class PlayerController {
   private tmpB = new THREE.Vector3();
   private tmpVel = new THREE.Vector3();
   private stepGrace = 0;
+  /** resolve() 這輪是否撞到不可站立的面（牆、台階立面） */
+  private hitWall = false;
+  /** 鏡頭高度補償：上台階為負、貼地下階為正，每個物理步指數衰減；跳躍/墜落不套用 */
+  private stepOffset = 0;
+  private prevStepOffset = 0;
   private tmpN = new THREE.Vector3();
   private stepRay = new THREE.Ray(new THREE.Vector3(), new THREE.Vector3(0, -1, 0));
   private tmpMove = new THREE.Vector2();
@@ -107,6 +116,9 @@ export class PlayerController {
     this.state.crouching = false;
     this.eye = EYE_STAND;
     this.airTime = 0;
+    this.stepOffset = 0;
+    this.prevStepOffset = 0;
+    this.stepGrace = 0;
     this.syncPos();
     this.prevPos.copy(this.curPos);
   }
@@ -121,6 +133,9 @@ export class PlayerController {
     const st = this.state;
     const input = this.input;
     this.prevPos.copy(this.curPos);
+    this.prevStepOffset = this.stepOffset;
+    this.stepOffset *= Math.exp(-dt / STEP_SMOOTH_TAU);
+    if (Math.abs(this.stepOffset) < 1e-4) this.stepOffset = 0;
     this.stepGrace = Math.max(0, this.stepGrace - dt);
 
     // 蹲下 / 起身（起身前檢查頭頂）
@@ -152,26 +167,39 @@ export class PlayerController {
       if (!st.crouching) {
         this.vel.y = JUMP_V;
         st.grounded = false;
+        this.stepGrace = 0;
       }
     }
 
     const wasGrounded = st.grounded;
+    // 剛上台階：球體滾過台階邊緣時碰撞法線會帶出向上的速度，會讓人浮高再落下，清掉
+    if (this.stepGrace > 0 && this.vel.y > 0) this.vel.y = 0;
     this.vel.y -= GRAVITY * dt;
 
     // 水平移動（含上台階）
-    this.moveHorizontal(this.vel.x * dt, this.vel.z * dt, wasGrounded);
+    // 剛離地一瞬間（球體滾過台階邊緣被彈起）也允許上台階；跳躍起跳的上升速度遠大於此門檻
+    this.moveHorizontal(this.vel.x * dt, this.vel.z * dt, wasGrounded || (this.airTime < 0.1 && this.vel.y < 3));
 
     // 垂直移動
     this.capsule.translate(this.tmpV.set(0, this.vel.y * dt, 0));
     const fallSpeed = -this.vel.y;
     let floor = this.resolve();
 
+    // 貼地（下樓梯、下坡）：原本踩地、現在懸空且沒在上升，就貼回腳下的地面
+    if (!floor && wasGrounded && this.stepGrace <= 0 && this.vel.y <= 0) {
+      const y0 = this.capsule.start.y;
+      floor = this.snapDown();
+      const drop = y0 - this.capsule.start.y;
+      if (floor && drop > SNAP_SMOOTH_MIN) this.stepOffset += drop; // 鏡頭留在原高度，再慢慢追上
+    }
     // 邊緣支撐：膠囊球體卡在台階邊緣時，接觸法線不夠垂直，改用向下射線判定踩地
-    if (!floor && this.vel.y <= 0) floor = this.groundProbe();
+    if (!floor && this.vel.y <= 0) {
+      floor = this.groundProbe();
+      // 重心已經越過台階邊緣、腳下真的有踏面了：不需要再靠寬限期硬撐
+      if (floor) this.stepGrace = 0;
+    }
     // 剛上台階的短暫期間視為踩地，讓玩家能前進到台階上方
     if (!floor && this.stepGrace > 0 && this.vel.y <= 0) { floor = true; this.vel.y = 0; }
-    // 貼地（下樓梯、下坡）
-    if (!floor && wasGrounded && this.vel.y <= 0) floor = this.snapDown();
 
     st.grounded = floor;
     if (floor) {
@@ -232,6 +260,7 @@ export class PlayerController {
   /** 把膠囊推出碰撞；回傳是否踩到可站立地面 */
   private resolve(): boolean {
     let floor = false;
+    this.hitWall = false;
     for (let i = 0; i < 4; i++) {
       const r = this.octree!.capsuleIntersect(this.capsule);
       if (!r) break;
@@ -241,6 +270,7 @@ export class PlayerController {
         this.capsule.translate(this.tmpV.set(0, r.depth / r.normal.y, 0));
         if (this.vel.y < 0) this.vel.y = 0;
       } else {
+        this.hitWall = true;
         this.capsule.translate(this.tmpV.copy(r.normal).multiplyScalar(r.depth));
         const vn = this.vel.dot(r.normal);
         if (vn < 0) this.vel.addScaledVector(r.normal, -vn);
@@ -258,13 +288,14 @@ export class PlayerController {
     if (dx === 0 && dz === 0) return;
     const cap = this.capsule;
     const a = this.tmpA.copy(cap.start), b = this.tmpB.copy(cap.end);
+    const vx0 = this.vel.x, vz0 = this.vel.z;
     cap.translate(this.tmpV.set(dx, 0, dz));
     this.resolve();
-    if (!grounded) return;
+    // 沒有撞到牆/立面就不需要找台階（斜坡由 resolve 的垂直推出處理）
+    if (!grounded || !this.hitWall) return;
 
     const want = Math.hypot(dx, dz);
     const moved1 = Math.hypot(cap.start.x - a.x, cap.start.z - a.z);
-    if (moved1 >= want * 0.7) return;
 
     // 被擋住：在前方探測台階頂面，若高度差在可跨越範圍內就把膠囊抬高再前進
     const feetY = a.y - RADIUS;
@@ -273,7 +304,7 @@ export class PlayerController {
     const hit = this.octree!.rayIntersect(this.stepRay);
     if (!hit || hit.distance > STEP_H + 0.04) return;
     const gain = hit.position.y - feetY;
-    if (gain < 0.01 || gain > STEP_H) return;
+    if (gain < STEP_MIN || gain > STEP_H) return;
     if (Math.abs(hit.triangle.getNormal(this.tmpN).y) < WALKABLE_NY) return;
 
     const s1x = cap.start.x, s1y = cap.start.y, s1z = cap.start.z, e1y = cap.end.y;
@@ -284,14 +315,20 @@ export class PlayerController {
     if (ok) {
       cap.translate(this.tmpV.set(dx, 0, dz));
       this.resolve();
-      ok = Math.hypot(cap.start.x - a.x, cap.start.z - a.z) > moved1 + 0.002;
+      // 抬高後走得更遠，或抬高後完全沒有被擋（球體滾過邊緣時，原高度的滑動距離看起來幾乎不減，但速度會被削掉）
+      ok = !this.hitWall || Math.hypot(cap.start.x - a.x, cap.start.z - a.z) > moved1 + 0.002;
     }
     if (!ok) {
       cap.start.set(s1x, s1y, s1z);
       cap.end.set(s1x, e1y, s1z);
       this.vel.copy(vAfter1);
     } else {
-      this.stepGrace = 0.14;
+      this.stepGrace = STEP_GRACE;
+      // 台階立面造成的速度削減不算數：還原成移動前的水平速度
+      this.vel.x = vx0; this.vel.z = vz0;
+      this.vel.y = Math.min(this.vel.y, 0); // 球體滾過邊緣帶出的向上速度也不要
+      // 鏡頭不跟著瞬間抬高，改由 stepOffset 平滑追上
+      this.stepOffset -= cap.start.y - a.y;
     }
   }
 
@@ -305,13 +342,22 @@ export class PlayerController {
     return true;
   }
 
+  /**
+   * 貼地（下樓梯、下坡）：用向下射線找 SNAP_DIST 內的可站立地面，直接降到那個高度。
+   * 不把膠囊整個壓進地面再推出，避免深穿透時碰到三角形內部邊而得到歪斜的法線。
+   */
   private snapDown(): boolean {
     const cap = this.capsule;
-    const a = this.tmpA.copy(cap.start), b = this.tmpB.copy(cap.end);
-    cap.translate(this.tmpV.set(0, -SNAP_DIST, 0));
-    if (this.resolve()) return true;
-    cap.start.copy(a); cap.end.copy(b);
-    return false;
+    const feetY = cap.start.y - RADIUS;
+    this.stepRay.origin.set(cap.start.x, feetY + 0.05, cap.start.z);
+    const hit = this.octree!.rayIntersect(this.stepRay);
+    if (!hit) return false;
+    const drop = hit.distance - 0.05;
+    if (drop > SNAP_DIST || Math.abs(hit.triangle.getNormal(this.tmpN).y) < WALKABLE_NY) return false;
+    if (drop > 0) cap.translate(this.tmpV.set(0, -drop, 0));
+    this.resolve();
+    if (this.vel.y < 0) this.vel.y = 0;
+    return true;
   }
 
   /** 向下射線取得腳下材質 */
@@ -338,8 +384,9 @@ export class PlayerController {
     const bobX = Math.cos(this.bobPhase) * this.bobAmp * 0.6;
 
     const p = this.tmpV.lerpVectors(this.prevPos, this.curPos, alpha);
+    const stepY = this.prevStepOffset + (this.stepOffset - this.prevStepOffset) * alpha;
     const cos = Math.cos(this.yaw), sin = Math.sin(this.yaw);
-    this.camera.position.set(p.x + cos * bobX, p.y + this.eye + bobY, p.z - sin * bobX);
+    this.camera.position.set(p.x + cos * bobX, p.y + this.eye + bobY + stepY, p.z - sin * bobX);
     this.camera.rotation.set(this.pitch, this.yaw, 0);
   }
 }

@@ -79,13 +79,20 @@ export function buildTestGreybox(): GameMap {
     }
   });
 
-  // ---- 樓梯（10 階，每階 0.2m）+ 平台 ----
+  // ---- 樓梯（10 階，每階 0.2m；視覺是台階、碰撞是隱形斜坡）+ 平台 ----
   {
-    const sx = -40, rise = 0.2, depth = 0.4, zA = -9.5, zB = -6.5;
-    for (let i = 0; i < 10; i++) {
-      b.boxMinMax('concrete', '#9a9da1', sx + i * depth, -0.5, zA, sx + (i + 1) * depth, (i + 1) * rise, zB);
+    const sx = -40, rise = 0.2, depth = 0.4, zA = -11, zB = -5;
+    b.addStairs({ surface: 'concrete', color: '#9a9da1', altColor: '#8f9296', x: sx, y: 0, z: (zA + zB) / 2, steps: 10, rise, depth, width: zB - zA });
+    b.boxMinMax('metal', '#7b8996', sx + 10 * depth, -0.5, zA, sx + 10 * depth + 6, 2.0, zB);
+  }
+
+  // ---- 零散小台階（真實碰撞的 4 階，每階 0.15m；用來驗證控制器的上台階）----
+  {
+    const sx = -40, rise = 0.15, depth = 0.45, zA = -3.5, zB = -0.5;
+    for (let i = 0; i < 4; i++) {
+      b.boxMinMax('concrete', '#a9a39a', sx + i * depth, -0.5, zA, sx + (i + 1) * depth, (i + 1) * rise, zB);
     }
-    b.boxMinMax('metal', '#7b8996', sx + 10 * depth, -0.5, -11, sx + 10 * depth + 6, 2.0, -5);
+    b.boxMinMax('concrete', '#a9a39a', sx + 4 * depth, -0.5, zA, sx + 4 * depth + 3, 4 * rise, zB);
   }
 
   // ---- 斜坡（約 15 度）+ 平台 ----
@@ -152,12 +159,12 @@ export function buildTestGreybox(): GameMap {
     reverbZones.push({ box: new THREE.Box3(new THREE.Vector3(-34, -0.5, 16), new THREE.Vector3(-6, 3.5, 21)), type: 'tunnel', name: 'tunnel' });
   }
 
-  const { group, meshes } = b.build();
+  const { group, meshes, collision } = b.build();
   root.add(group);
 
   return {
     root,
-    collision: group,
+    collision,
     surfaceMeshes: meshes,
     reverbZones,
     spawn: { position: new THREE.Vector3(0, 0.1, 12), yaw: 0 },
