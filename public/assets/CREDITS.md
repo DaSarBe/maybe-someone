@@ -97,3 +97,42 @@
 
 見 `manifest.json` 的 `missing`：金屬/泥土/磁磚腳步聲、空槍（dry_fire）音效、子彈命中水泥音效、古董花瓶/電池/晶片模型、槍械模型。
 （手槍/步槍/換彈與港口風聲、室內環境音已由上方 OpenGameArt 音效補上。）
+
+## M4 新增素材（素材助理，2026-11）
+
+**注意**：本批音效是依波形切段與檔案中繼資料挑選，**尚未經人工試聽確認**。請在合併前試聽 `sounds/enemy/*`、`sounds/impacts/player_flesh_*`、`sounds/ambient/*` 並替換不合適者。
+
+### 3D 模型
+
+| 檔案 | 原作 | 來源網址 | 授權 | 格式／備註 |
+|---|---|---|---|---|
+| models/weapons/weapon_pistol.obj（+ .mtl） | Quaternius，FPS Pack，Pistol | https://opengameart.org/content/low-poly-animated-guns | CC0 1.0 | OBJ+MTL，約 1.5k 三角面，無貼圖（僅 MTL 材質色）。原檔為 OBJ，未轉換。 |
+| models/weapons/weapon_smg.obj（+ .mtl） | Quaternius，FPS Pack，P90（作為 SMG／PDW 使用） | 同上 | CC0 1.0 | OBJ+MTL，約 0.95k 三角面 |
+| models/weapons/weapon_rifle.obj（+ .mtl） | Quaternius，FPS Pack，Rifle | 同上 | CC0 1.0 | OBJ+MTL，約 1.9k 三角面 |
+| models/weapons/weapon_shotgun.obj（+ .mtl） | Quaternius，FPS Pack，Shotgun | 同上 | CC0 1.0 | OBJ+MTL，約 1.0k 三角面 |
+| models/harbor/prop_pallet.obj | drummyfish，32 low poly models（pallet） | https://opengameart.org/content/32-low-poly-models | CC0 1.0（檔案註解亦載明） | OBJ，324 面，無 MTL |
+| models/harbor/prop_truck.glb | Quaternius（經 npm @netforge/asset-library-files，library/lowpoly/truck.glb） | https://poly.pizza/u/Quaternius | CC0 1.0 | glb，EXT_meshopt_compression |
+
+武器 OBJ 為 Quaternius FPS Pack 的 OBJ 版本，同包另有 FBX 與 .blend，未使用。
+
+### 音效
+
+| 檔案 | 原作 | 來源網址 | 授權 | 備註 |
+|---|---|---|---|---|
+| sounds/enemy/hurt_01–04.ogg | thebardofblasphemy，Grunts male death and pain（death pain grunts.wav 內的短促段落） | https://opengameart.org/content/grunts-male-death-and-pain | CC0 1.0 | 依靜音切段，未試聽 |
+| sounds/enemy/death_01–03.ogg | 同上（較長段落） | 同上 | CC0 1.0 | 依靜音切段，未試聽 |
+| sounds/enemy/alert_01.ogg | TaniCorn，Male "Hey" | https://opengameart.org/content/male-hey | **CC-BY 4.0** | **須署名**：「Hey」語音由 TaniCorn 製作，授權 CC BY 4.0（https://creativecommons.org/licenses/by/4.0/）。已修剪靜音並正規化。 |
+| sounds/impacts/player_flesh_01.ogg | Spring Spring，Various sound effects（snd_bullethit.wav） | https://opengameart.org/content/various-sound-effects-0 | CC0 1.0 | |
+| sounds/impacts/player_flesh_02.ogg | 同上（player_hit.wav） | 同上 | CC0 1.0 | |
+| sounds/impacts/player_flesh_03.ogg | qubodup（wet towel on body，經 OGA 頁面），wet_towel_on_body-03 | https://opengameart.org/content/40-wet-towel-clubpoundhitattack-sounds | CC0 1.0 | 非槍彈擊中，以濕毛巾拍打身體代用 |
+| sounds/impacts/player_flesh_04.ogg | Independent.nu（submitted by qubodup），Hits and punches（hit10） | https://opengameart.org/content/37-hitspunches | CC0 1.0 | 拳擊聲代用 |
+| sounds/ambient/ship_horn.ogg | Musheran，Foghorn（kinda gross） | https://opengameart.org/content/foghorn-kinda-gross | CC0 1.0 | 船笛 |
+| sounds/ambient/seagulls.ogg | Rango Mango，Solo seagull sound effects（Seagull Ambient 1–4 依序接合，間隔 0.5 秒） | https://opengameart.org/content/solo-seagull-sound-effects | CC0 1.0 | 不可循環（單次播放的海鷗叫聲序列） |
+| sounds/ambient/waves.ogg | yd，ocean waves（oceanwaves.zip，取 20–36 秒段，末端交叉淡化成可循環） | https://opengameart.org/content/enemy-ship-approaching | CC0 1.0 | 14 秒可循環 |
+
+### 尚缺（M4 未找到合適的 CC0 來源）
+
+- `weapons.casing`（彈殼掉落）、`weapons.bullet_flyby`（子彈飛過耳邊）、`impacts.player_armor`（子彈打到護甲的金屬聲）
+- `enemy.alert` 第 2、3 段（目前只找到一段 CC-BY 的「Hey」）
+- 模型：貨櫃、起重機、堆高機、路燈、繫纜樁。已排除的候選：container-0 與 shipping-containers-low-poly（僅 .blend，或授權說明與頁面標示不一致）、forklift（.blend，CC-BY 4.0）、lamp-post（僅 PNG）。
+- 已排除：CC-BY 3.0 的 soldier voice acting、11-male-human paindeath（CC-BY 3.0）、aargh-male-screams（CC-BY 3.0）；僅 `.blend` 的 oil drum、wooden pallet、smg 等。

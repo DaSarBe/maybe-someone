@@ -94,7 +94,9 @@
       "sounds/weapons/reload_01.ogg",
       "sounds/weapons/reload_02.ogg",
       "sounds/weapons/reload_03.ogg"
-    ]
+    ],
+    "casing": [],
+    "bullet_flyby": []
   },
   "impacts": {
     "metal": [
@@ -124,13 +126,39 @@
       "sounds/impacts/generic_03.ogg",
       "sounds/impacts/generic_04.ogg",
       "sounds/impacts/generic_05.ogg"
+    ],
+    "player_flesh": [
+      "sounds/impacts/player_flesh_01.ogg",
+      "sounds/impacts/player_flesh_02.ogg",
+      "sounds/impacts/player_flesh_03.ogg",
+      "sounds/impacts/player_flesh_04.ogg"
+    ],
+    "player_armor": []
+  },
+  "enemy": {
+    "hurt": [
+      "sounds/enemy/hurt_01.ogg",
+      "sounds/enemy/hurt_02.ogg",
+      "sounds/enemy/hurt_03.ogg",
+      "sounds/enemy/hurt_04.ogg"
+    ],
+    "death": [
+      "sounds/enemy/death_01.ogg",
+      "sounds/enemy/death_02.ogg",
+      "sounds/enemy/death_03.ogg"
+    ],
+    "alert": [
+      "sounds/enemy/alert_01.ogg"
     ]
   },
   "ambient": {
     "machinery_hum": "sounds/ambient/machinery_hum.ogg",
     "time_rift": "sounds/ambient/time_rift.ogg",
     "harbor_wind": "sounds/ambient/harbor_wind.ogg",
-    "indoor_room_tone": "sounds/ambient/indoor_room_tone.ogg"
+    "indoor_room_tone": "sounds/ambient/indoor_room_tone.ogg",
+    "ship_horn": "sounds/ambient/ship_horn.ogg",
+    "seagulls": "sounds/ambient/seagulls.ogg",
+    "waves": "sounds/ambient/waves.ogg"
   },
   "sfx": {
     "time_machine_depart": "sounds/sfx/time_machine_depart.ogg",
@@ -245,6 +273,40 @@
     "item_grenade": {
       "path": "models/item_grenade.glb",
       "animations": []
+    },
+    "weapon_pistol": {
+      "path": "models/weapons/weapon_pistol.obj",
+      "format": "Quaternius FPS Pack (CC0) Pistol; OBJ+MTL, ~1.5k tris, no textures (MTL only). Load with OBJLoader+MTLLoader. Not meshopt.",
+      "animations": "obj"
+    },
+    "weapon_smg": {
+      "path": "models/weapons/weapon_smg.obj",
+      "format": "obj",
+      "animations": [],
+      "note": "Quaternius FPS Pack (CC0) P90 used as SMG/PDW; OBJ+MTL, ~0.95k tris."
+    },
+    "weapon_rifle": {
+      "path": "models/weapons/weapon_rifle.obj",
+      "format": "obj",
+      "animations": [],
+      "note": "Quaternius FPS Pack (CC0) Rifle; OBJ+MTL, ~1.9k tris."
+    },
+    "weapon_shotgun": {
+      "path": "models/weapons/weapon_shotgun.obj",
+      "format": "obj",
+      "animations": [],
+      "note": "Quaternius FPS Pack (CC0) Shotgun; OBJ+MTL, ~1.0k tris."
+    },
+    "prop_pallet": {
+      "path": "models/harbor/prop_pallet.obj",
+      "format": "obj",
+      "animations": [],
+      "note": "drummyfish (CC0 1.0) pallet from 32 low poly models; OBJ, 324 faces, no MTL."
+    },
+    "prop_truck": {
+      "path": "models/harbor/prop_truck.glb",
+      "animations": [],
+      "note": "Quaternius (CC0) truck from @netforge/asset-library-files; glb, meshopt-compressed (EXT_meshopt_compression)."
     }
   },
   "textures": {
@@ -268,7 +330,8 @@
     "ambient.machinery_hum is Kenney Sci-fi engine_circular_000 used as an approximate indoor hum; ambient.time_rift is force_field_000.",
     "textures are 128x128 PS1-style surface textures; tileable status not verified.",
     "footsteps.metal/metal_hollow/metal_grate: Thimras CC0 recordings (metal steps on concrete) with a project-synthesized character layer on top (see CREDITS.md). footsteps.gravel/water/sand, weapons.pistol_fire/reload, ambient.harbor_wind/indoor_room_tone: OpenGameArt CC0 (see CREDITS.md). weapons.rifle_fire: CC-BY 3.0, attribution required (see CREDITS.md).",
-    "sfx.*, ui.equip/sell/buy, textures.scifi_floor/scifi_wall: see CREDITS.md (Sci-Fi Sounds/512 SFX CC0 via OpenGameArt; scifi textures are procedurally generated in-project). sfx.search_rummage is synthesized noise, not a sampled recording."
+    "sfx.*, ui.equip/sell/buy, textures.scifi_floor/scifi_wall: see CREDITS.md (Sci-Fi Sounds/512 SFX CC0 via OpenGameArt; scifi textures are procedurally generated in-project). sfx.search_rummage is synthesized noise, not a sampled recording.",
+    "M4: weapon_* models are Quaternius FPS Pack (CC0) OBJ+MTL, not glb/meshopt; prop_pallet is OBJ. enemy.hurt/death/alert, player_flesh, ambient.ship_horn/seagulls/waves were chosen by waveform segmentation and metadata, NOT auditioned by ear; verify before shipping. alert_01 is CC-BY 4.0 (attribution in CREDITS.md)."
   ],
   "missing": [
     "footsteps.dirt",
@@ -276,11 +339,18 @@
     "weapons.dry_fire",
     "weapons.bullet_impact_concrete",
     "impacts.concrete (generic used instead)",
-    "models.pistol",
-    "models.rifle",
     "models.vase_antique",
     "models.battery",
     "models.chip",
-    "models.dock_container_or_warehouse_modular"
+    "models.dock_container_or_warehouse_modular",
+    "enemy.alert_02 and enemy.alert_03 (only one CC-BY alert clip found)",
+    "weapons.casing (no CC0 shell-drop sample found)",
+    "weapons.bullet_flyby (no CC0 whoosh found; snd_bulletcrackle is a crackle, not used)",
+    "impacts.player_armor (no CC0 metal bullet-on-armor hit found)",
+    "models.prop_container (only CC-BY 4.0 shipping container obj found; readme conflicts, not used; other container packs are .blend only)",
+    "models.prop_crane",
+    "models.prop_forklift (only CC-BY 4.0 .blend found)",
+    "models.prop_lamp_post (lamp_post_0 pack contains a PNG only)",
+    "models.prop_bollard"
   ]
 }
