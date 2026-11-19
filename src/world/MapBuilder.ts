@@ -37,6 +37,8 @@ export class MapBuilder {
   private nextVisual = true;
   private nextCollide = true;
   private readonly material = new THREE.MeshLambertMaterial({ vertexColors: true });
+  /** 依材質覆寫的貼圖設定（useTexture）：世界座標 UV，每 tileMeters 公尺重複一次 */
+  private readonly textured = new Map<Surface, { material: THREE.Material; tile: number }>();
 
   /** 以中心 + 尺寸加入方塊，可選旋轉（弧度，XYZ 順序） */
   box(
@@ -55,8 +57,41 @@ export class MapBuilder {
     return this.addGeometry(surface, color, geo);
   }
 
+  /**
+   * 為某種材質指定貼圖（顏色仍以頂點色相乘）；UV 以世界座標投影，每 tileMeters 公尺重複一次。
+   * 必須在加入該材質的方塊之前呼叫。
+   */
+  useTexture(surface: Surface, texture: THREE.Texture, tileMeters: number): this {
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.colorSpace = THREE.SRGBColorSpace;
+    this.textured.set(surface, { material: new THREE.MeshLambertMaterial({ vertexColors: true, map: texture }), tile: tileMeters });
+    return this;
+  }
+
+  /** 純碰撞方塊（隱形牆、碰撞簡化體）：只進 Octree，不渲染 */
+  colliderMinMax(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, surface: Surface = 'concrete'): this {
+    this.nextVisual = false;
+    this.boxMinMax(surface, '#ffffff', x0, y0, z0, x1, y1, z1);
+    this.nextVisual = true;
+    return this;
+  }
+
+  /** 純視覺方塊（招牌、窗框、欄杆細節）：只渲染，不碰撞，但仍帶材質標記 */
+  visualBox(
+    surface: Surface, color: THREE.ColorRepresentation,
+    cx: number, cy: number, cz: number, sx: number, sy: number, sz: number,
+    rot?: { x?: number; y?: number; z?: number },
+  ): this {
+    this.nextCollide = false;
+    this.box(surface, color, cx, cy, cz, sx, sy, sz, rot);
+    this.nextCollide = true;
+    return this;
+  }
+
   /** 加入任意幾何（已在世界座標）；顏色寫成頂點色 */
   private addGeometry(surface: Surface, color: THREE.ColorRepresentation, geo: THREE.BufferGeometry): this {
+    const tx = this.textured.get(surface);
+    if (tx && geo.getAttribute('normal')) this.projectUv(geo, tx.tile);
     const c = new THREE.Color(color);
     const n = geo.getAttribute('position').count;
     const colors = new Float32Array(n * 3);
@@ -111,6 +146,21 @@ export class MapBuilder {
     return this;
   }
 
+  /** 依法線主軸把世界座標投影成 UV */
+  private projectUv(geo: THREE.BufferGeometry, tile: number): void {
+    const pos = geo.getAttribute('position'), nor = geo.getAttribute('normal');
+    const uv = new Float32Array(pos.count * 2);
+    for (let i = 0; i < pos.count; i++) {
+      const ax = Math.abs(nor.getX(i)), ay = Math.abs(nor.getY(i)), az = Math.abs(nor.getZ(i));
+      let u: number, v: number;
+      if (ay >= ax && ay >= az) { u = pos.getX(i); v = pos.getZ(i); }
+      else if (ax >= az) { u = pos.getZ(i); v = pos.getY(i); }
+      else { u = pos.getX(i); v = pos.getY(i); }
+      uv[i * 2] = u / tile; uv[i * 2 + 1] = v / tile;
+    }
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  }
+
   /** 以最小/最大角加入方塊 */
   boxMinMax(
     surface: Surface, color: THREE.ColorRepresentation,
@@ -127,15 +177,20 @@ export class MapBuilder {
     const group = new THREE.Group();
     const collision = new THREE.Group();
     const meshes: THREE.Mesh[] = [];
-    const merge = (pieces: Piece[]): THREE.BufferGeometry | null =>
-      pieces.length ? mergeGeometries(pieces.map((p) => p.geo.clone()), false) : null;
+    const merge = (pieces: Piece[]): THREE.BufferGeometry | null => {
+      if (!pieces.length) return null;
+      // 索引與非索引幾何（方塊 vs 擠出的斜坡）混合時，統一轉成非索引才能合併
+      const mixed = pieces.some((p) => p.geo.index) && pieces.some((p) => !p.geo.index);
+      return mergeGeometries(pieces.map((p) => (mixed && p.geo.index ? p.geo.toNonIndexed() : p.geo.clone())), false);
+    };
     for (const [surface, list] of this.bySurface) {
       const both = merge(list.filter((p) => p.visual && p.collide));
       const visualOnly = merge(list.filter((p) => p.visual && !p.collide));
       const collideOnly = merge(list.filter((p) => !p.visual && p.collide));
       list.forEach((p) => p.geo.dispose());
+      const material = this.textured.get(surface)?.material ?? this.material;
       const make = (geo: THREE.BufferGeometry, name: string): THREE.Mesh => {
-        const mesh = new THREE.Mesh(geo, this.material);
+        const mesh = new THREE.Mesh(geo, material);
         mesh.name = name;
         mesh.userData.surface = surface;
         return mesh;
