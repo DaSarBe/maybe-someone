@@ -37,6 +37,7 @@ export class HubScene implements Scene {
   private hud!: GameHud;
   private dbg: DebugHud | null = null;
   private menu: PauseMenu | null = null;
+  private mc: MobileControls | null = null;
   private zone: ReverbZone | null = null;
   private near: Station | null = null;
   private tmp = new THREE.Vector3();
@@ -66,13 +67,13 @@ export class HubScene implements Scene {
     this.player.teleport(this.map.spawn.position, this.map.spawn.yaw);
 
     this.ui = new Ui(game);
-    this.hud = new GameHud(game.container);
+    this.hud = new GameHud(game.container, touch ? game.layout : null);
     this.hud.setCredits(game.economy.credits);
     this.unsubs.push(game.economy.subscribe(() => this.hud.setCredits(game.economy.credits)));
     if (this.opts.showHud !== false) this.dbg = new DebugHud(game.container, game.bus, touch);
-    if (touch) new MobileControls(game.container, game.input);
+    if (touch) this.mc = new MobileControls(game.container, game.input, game.layout, game.controls);
     this.menu = new PauseMenu(game.container, game.input, game.audio, {
-      touch, debug: game.debug,
+      touch, debug: game.debug, game,
       hint: 'WASD 移動 ・ Shift 衝刺 ・ E 互動 ・ Tab 身上裝備 ・ Esc 暫停|左側搖桿移動 ・ 右側拖曳轉視角 ・ 靠近互動站按「互動」',
       isBlocked: () => this.ui.isOpen,
       extra: [
@@ -96,7 +97,7 @@ export class HubScene implements Scene {
     this.hud.dispose();
     this.dbg?.dispose();
     this.menu?.dispose();
-    this.game.container.querySelector('.mc')?.remove();
+    this.mc?.dispose();
   }
 
   resize(w: number, h: number): void {

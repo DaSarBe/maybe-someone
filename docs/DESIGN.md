@@ -134,3 +134,12 @@ public/assets/            models/ sounds/ sprites/ textures/ + CREDITS.md + mani
 | 子彈 | 打商人只播放命中聲（`userData.flesh` 的隱形圓柱），商人不會死；敵人只以玩家為目標 |
 
 一趟的獲利：帶 3 電池 + 3 凝膠 + 2 晶片（成本約 ₵4,800，重 3.4 kg），在商人處換得約 NT$12,000；再用其中一部分買古董（帶回未來約 +30%）。扣掉成本，一趟約 +₵8,000～11,000，但舊台幣放在背包，死亡全失。
+
+## 9. M5 手機操作與按鍵配置約定
+
+- **版面資料**（`src/ui/layout/model.ts`，純函式）：每個元素存「中心點相對安全區的比例 x、y（0～1）」＋倍率 `s`（0.5～2）＋透明度 `o`（0.2～1）；基準大小是安全區短邊（上限 430px）的比例。預設值定義在 `ELEMENT_DEFS`，沒被改過的元素不存檔、永遠走預設。存檔 key `layout`，格式 `{ version, active, slots[3]{name, items}, grid }`，讀檔一律經 `migrateStore`（損毀 / 舊版 / 未來版本都會變成合法資料）。
+- **安全區**：`LayoutManager` 用探針元素量 `env(safe-area-inset-*)`（可用 CSS 變數 `--sa-t/-r/-b/-l` 覆寫，測試用），再加 6px 邊距。`index.html` 已有 `viewport-fit=cover`。
+- **套用**：觸控版的 HUD 與按鈕都 `layout.bind(id, el)`，大小 / 位置 / 透明度由版面決定；電腦版不 bind（HUD 維持原樣，遊戲中不顯示觸控按鈕）。新增元素：在 `ELEMENT_DEFS` 加定義、跑 `tests/layout.test.ts`（6 種尺寸不重疊）。
+- **編輯器**（暫停選單 →「按鍵配置」）：全部在草稿上編輯，「儲存」才寫入；重疊只警告不阻擋。
+- **控制設定**（`src/settings/ControlSettings.ts`，存檔 key `controls`）：靈敏度、陀螺儀、蹲下 / 瞄準模式、左射擊鍵、輔助瞄準。`Input.setSettings` 即時套用；蹲下 / 瞄準的「點一下切換」統一在 `Input.setAction` 處理（所有來源通用）。
+- **陀螺儀**（`src/input/Gyro.ts` + `gyroMath.ts`）：用 `devicemotion.rotationRate`，依 `screen.orientation.angle` 轉成螢幕軸，經死區與平滑後只呼叫 `Input.addLook(dx, dy, 'gyro')`。iOS 需在點擊中呼叫 `requestPermission()`，且只有 HTTPS 才能用。

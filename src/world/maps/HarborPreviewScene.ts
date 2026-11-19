@@ -34,6 +34,7 @@ export class HarborPreviewScene implements Scene {
   private game!: Game;
   private hud: DebugHud | null = null;
   private menu: PauseMenu | null = null;
+  private mc: MobileControls | null = null;
   private zone: ReverbZone | null = null;
   private zoneType: ReverbType = 'outdoor';
   private tmp = new THREE.Vector3();
@@ -58,9 +59,9 @@ export class HarborPreviewScene implements Scene {
     this.scene.add(this.camera);
     applyHarborAtmosphere(this.scene);
     if (this.opts.showHud !== false) this.hud = new DebugHud(game.container, game.bus, touch);
-    if (touch) new MobileControls(game.container, game.input);
+    if (touch) this.mc = new MobileControls(game.container, game.input, game.layout, game.controls);
     this.menu = new PauseMenu(game.container, game.input, game.audio, {
-      touch, debug: game.debug,
+      touch, debug: game.debug, game,
       hint: 'WASD 移動 ・ Shift 衝刺 ・ C 蹲下 ・ Space 跳躍 ・ F 飛行 ・ G 除錯標記|左側搖桿移動 ・ 右側拖曳轉視角',
     });
     window.addEventListener('keydown', this.onKey);
@@ -91,7 +92,7 @@ export class HarborPreviewScene implements Scene {
     window.removeEventListener('keydown', this.onKey);
     this.hud?.dispose();
     this.menu?.dispose();
-    this.game.container.querySelector('.mc')?.remove();
+    this.mc?.dispose();
   }
 
   resize(w: number, h: number): void {

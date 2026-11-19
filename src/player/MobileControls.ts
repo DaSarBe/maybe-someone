@@ -1,48 +1,64 @@
 import type { Action, Input } from '../core/Input';
+import type { ControlSettingsStore } from '../settings/ControlSettings';
+import type { LayoutManager } from '../ui/layout/LayoutManager';
+import type { ElementId } from '../ui/layout/model';
 
 const SRC = 'touch';
-const STICK_RADIUS = 55;
 const LOOK_SENS = 0.0050;
 const SPRINT_THRESHOLD = 0.92;
 const DEADZONE = 0.12;
+/** 搖桿底座直徑 → 可推動半徑 */
+const STICK_RADIUS_K = 0.42;
+const KNOB_K = 0.45;
 
 interface BtnDef {
+  id: ElementId;
   label: string;
   action: Action;
-  size: number;
-  right: number;
-  bottom?: number;
-  top?: number;
-  mode: 'hold' | 'toggle';
   cls?: string;
-  /** 按住拖曳同時控制視角 */
+  /** 按住拖曳同時控制視角（右側射擊鍵） */
   look?: boolean;
   /** 只在有戰鬥系統的場景顯示 */
   combat?: boolean;
 }
 
+/** 位置、大小全部由 LayoutManager 決定（見 ui/layout/model.ts 的預設版面） */
 const BUTTONS: BtnDef[] = [
-  { label: '射擊', action: 'fire', size: 84, right: 22, bottom: 36, mode: 'hold', cls: 'mc-fire', look: true },
-  { label: '瞄準', action: 'aim', size: 62, right: 118, bottom: 30, mode: 'hold' },
-  { label: '跳', action: 'jump', size: 66, right: 28, bottom: 134, mode: 'hold' },
-  { label: '蹲', action: 'crouch', size: 58, right: 106, bottom: 118, mode: 'toggle' },
-  { label: '互動', action: 'interact', size: 54, right: 24, bottom: 216, mode: 'hold' },
-  { label: '換彈', action: 'reload', size: 54, right: 92, bottom: 200, mode: 'hold' },
-  { label: '背包', action: 'inventory', size: 44, right: 64, top: 10, mode: 'hold' },
-  { label: '切換', action: 'weaponSwap', size: 46, right: 168, bottom: 96, mode: 'hold', combat: true, cls: 'mc-sm' },
-  { label: '治療', action: 'heal', size: 46, right: 168, bottom: 150, mode: 'hold', combat: true, cls: 'mc-sm' },
+  { id: 'fireL', label: '射擊', action: 'fire', cls: 'mc-fire mc-fire-l', combat: true },
+  { id: 'fireR', label: '射擊', action: 'fire', cls: 'mc-fire', look: true },
+  { id: 'aim', label: '瞄準', action: 'aim' },
+  { id: 'jump', label: '跳', action: 'jump' },
+  { id: 'crouch', label: '蹲', action: 'crouch' },
+  { id: 'interact', label: '互動', action: 'interact' },
+  { id: 'reload', label: '換彈', action: 'reload' },
+  { id: 'inventory', label: '背包', action: 'inventory', cls: 'mc-sm' },
+  { id: 'swap', label: '切換', action: 'weaponSwap', combat: true, cls: 'mc-sm' },
+  { id: 'heal', label: '治療', action: 'heal', combat: true, cls: 'mc-sm' },
 ];
 
-/** 手機觸控介面：左側浮動搖桿（推到底衝刺）、右半螢幕拖曳轉視角、右下按鈕。支援多點觸控。 */
+/**
+ * 手機觸控介面：浮動搖桿（推到底衝刺）、右半螢幕拖曳轉視角、左右兩個射擊鍵與其他按鈕。
+ * 每個按鈕、每根手指都用自己的 pointerId 獨立追蹤，所以多點觸控（搖桿 + 左射擊 + 右射擊拖曳）互不干擾。
+ */
 export class MobileControls {
   private root = document.createElement('div');
   private base = document.createElement('div');
   private knob = document.createElement('div');
+  private zone = document.createElement('div');
   private stickId: number | null = null;
   private center = { x: 0, y: 0 };
   private home = { x: 0, y: 0 };
+  private radius = 55;
+  private cleanups: (() => void)[] = [];
+  private btnEls = new Map<ElementId, HTMLElement>();
 
-  constructor(parent: HTMLElement, private input: Input, opts: { combat?: boolean } = {}) {
+  constructor(
+    parent: HTMLElement,
+    private input: Input,
+    private layout: LayoutManager,
+    private controls: ControlSettingsStore,
+    opts: { combat?: boolean } = {},
+  ) {
     this.root.className = 'mc';
     this.root.addEventListener('contextmenu', (e) => e.preventDefault());
 
@@ -50,24 +66,53 @@ export class MobileControls {
     look.className = 'mc-look';
     this.bindLook(look);
 
-    const zone = document.createElement('div');
-    zone.className = 'mc-stickzone';
+    this.zone.className = 'mc-stickzone';
     this.base.className = 'mc-base';
     this.knob.className = 'mc-knob';
     this.base.appendChild(this.knob);
-    this.bindStick(zone);
+    this.bindStick(this.zone);
 
-    this.root.append(look, zone, this.base);
-    BUTTONS.filter((d) => !d.combat || opts.combat).forEach((d) => this.root.appendChild(this.makeButton(d, look)));
+    this.root.append(look, this.zone, this.base);
+    for (const d of BUTTONS.filter((b) => !b.combat || opts.combat)) this.root.appendChild(this.makeButton(d));
     parent.appendChild(this.root);
 
-    this.placeHome();
-    window.addEventListener('resize', () => this.placeHome());
+    // 「點一下切換」模式的亮燈（蹲下、瞄準）
+    this.cleanups.push(this.input.onLatch((src, action, on) => {
+      for (const d of BUTTONS) {
+        if (d.action === action && src === `${SRC}:${d.id}`) this.btnEls.get(d.id)?.classList.toggle('on', on);
+      }
+    }));
+    this.cleanups.push(this.layout.subscribe(() => this.applyLayout()));
+    this.cleanups.push(this.controls.subscribe(() => this.applyLayout()));
+    this.applyLayout();
   }
 
-  private placeHome(): void {
-    this.home = { x: 100, y: window.innerHeight - 110 };
+  dispose(): void {
+    for (const c of this.cleanups) c();
+    this.cleanups = [];
+    this.root.remove();
+  }
+
+  /** 搖桿大小與位置、左射擊鍵開關、搖桿觸控區 */
+  private applyLayout(): void {
+    const r = this.layout.rect('stick');
+    const op = this.layout.opacity('stick');
+    this.base.style.width = this.base.style.height = `${r.w}px`;
+    this.base.style.margin = `${-r.w / 2}px 0 0 ${-r.w / 2}px`;
+    this.base.style.opacity = String(op);
+    const k = r.w * KNOB_K;
+    this.knob.style.width = this.knob.style.height = `${k}px`;
+    this.knob.style.margin = `${-k / 2}px 0 0 ${-k / 2}px`;
+    this.radius = r.w * STICK_RADIUS_K;
+    this.home = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
     if (this.stickId === null) this.setBase(this.home.x, this.home.y);
+    // 觸控區：左側 46% × 下方 60%，且一定包含搖桿的預設位置
+    const vw = this.layout.viewport.w, vh = this.layout.viewport.h;
+    const right = Math.max(vw * 0.46, r.x + r.w + 24);
+    const top = Math.min(vh * 0.4, r.y - 24);
+    this.zone.style.width = `${right}px`;
+    this.zone.style.height = `${vh - Math.max(0, top)}px`;
+    this.btnEls.get('fireL')?.classList.toggle('hidden', !this.controls.get().leftFire);
   }
 
   private setBase(x: number, y: number): void {
@@ -87,14 +132,15 @@ export class MobileControls {
     });
     zone.addEventListener('pointermove', (e) => {
       if (e.pointerId !== this.stickId) return;
+      const R = this.radius;
       let dx = e.clientX - this.center.x, dy = e.clientY - this.center.y;
       const len = Math.hypot(dx, dy);
-      const m = Math.min(1, len / STICK_RADIUS);
-      if (len > STICK_RADIUS) { dx *= STICK_RADIUS / len; dy *= STICK_RADIUS / len; }
+      const m = Math.min(1, len / R);
+      if (len > R) { dx *= R / len; dy *= R / len; }
       this.knob.style.transform = `translate(${dx}px, ${dy}px)`;
       const live = m < DEADZONE ? 0 : m;
-      const nx = len > 0 ? dx / Math.min(len, STICK_RADIUS) : 0;
-      const ny = len > 0 ? dy / Math.min(len, STICK_RADIUS) : 0;
+      const nx = len > 0 ? dx / Math.min(len, R) : 0;
+      const ny = len > 0 ? dy / Math.min(len, R) : 0;
       this.input.setMoveSource(SRC, nx * live, -ny * live);
       const sprint = m >= SPRINT_THRESHOLD;
       this.input.setAction(SRC + '-stick', 'sprint', sprint);
@@ -123,7 +169,7 @@ export class MobileControls {
     });
     el.addEventListener('pointermove', (e) => {
       if (e.pointerId !== id) return;
-      this.input.addLook((e.clientX - lx) * LOOK_SENS, (e.clientY - ly) * LOOK_SENS);
+      this.input.addLook((e.clientX - lx) * LOOK_SENS, (e.clientY - ly) * LOOK_SENS, 'touch');
       lx = e.clientX; ly = e.clientY;
     });
     const end = (e: PointerEvent) => { if (e.pointerId === id) id = null; };
@@ -131,41 +177,35 @@ export class MobileControls {
     el.addEventListener('pointercancel', end);
   }
 
-  private makeButton(d: BtnDef, lookEl: HTMLElement): HTMLElement {
+  private makeButton(d: BtnDef): HTMLElement {
     const el = document.createElement('div');
     el.className = 'mc-btn ' + (d.cls ?? '');
     el.textContent = d.label;
-    el.style.width = el.style.height = `${d.size}px`;
-    el.style.right = `${d.right}px`;
-    if (d.bottom !== undefined) el.style.bottom = `calc(${d.bottom}px + env(safe-area-inset-bottom))`;
-    if (d.top !== undefined) el.style.top = `calc(${d.top}px + env(safe-area-inset-top))`;
-    void lookEl;
+    el.dataset.btn = d.id;
+    this.btnEls.set(d.id, el);
+    this.cleanups.push(this.layout.bind(d.id, el));
 
-    let toggled = false;
+    const src = `${SRC}:${d.id}`;
     let id: number | null = null;
     let lx = 0, ly = 0;
     el.addEventListener('pointerdown', (e) => {
       e.preventDefault();
+      if (id !== null) return;
       el.setPointerCapture(e.pointerId);
-      if (d.mode === 'toggle') {
-        toggled = !toggled;
-        this.input.setAction(SRC, d.action, toggled);
-        el.classList.toggle('on', toggled);
-        return;
-      }
       id = e.pointerId; lx = e.clientX; ly = e.clientY;
-      this.input.setAction(SRC, d.action, true);
+      // 蹲下 / 瞄準的「點一下切換」由 Input 統一處理
+      this.input.setAction(src, d.action, true);
       el.classList.add('pressed');
     });
     el.addEventListener('pointermove', (e) => {
       if (!d.look || e.pointerId !== id) return;
-      this.input.addLook((e.clientX - lx) * LOOK_SENS, (e.clientY - ly) * LOOK_SENS);
+      this.input.addLook((e.clientX - lx) * LOOK_SENS, (e.clientY - ly) * LOOK_SENS, 'touch');
       lx = e.clientX; ly = e.clientY;
     });
     const up = (e: PointerEvent) => {
-      if (d.mode === 'toggle' || e.pointerId !== id) return;
+      if (e.pointerId !== id) return;
       id = null;
-      this.input.setAction(SRC, d.action, false);
+      this.input.setAction(src, d.action, false);
       el.classList.remove('pressed');
     };
     el.addEventListener('pointerup', up);

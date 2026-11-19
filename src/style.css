@@ -49,9 +49,9 @@ html, body {
 }
 .mc-base.sprint .mc-knob { background: rgba(255,170,60,.65); border-color: #ffb04a; }
 .mc-btn {
-  position: absolute; display: flex; align-items: center; justify-content: center;
+  position: absolute; display: flex; align-items: center; justify-content: center; --u: 56px;
   border-radius: 50%; background: rgba(255,255,255,.14); border: 2px solid rgba(255,255,255,.35);
-  color: #fff; font-weight: 700; font-size: 15px; pointer-events: auto; touch-action: none;
+  color: #fff; font-weight: 700; font-size: calc(var(--u) * .27); pointer-events: auto; touch-action: none;
   text-shadow: 0 0 3px #000;
 }
 .mc-btn.on, .mc-btn.pressed { background: rgba(255,255,255,.38); }
@@ -61,7 +61,7 @@ html, body {
 .lock-overlay { cursor: default; padding: env(safe-area-inset-top) 12px env(safe-area-inset-bottom); }
 .lock-overlay.hidden, .hidden { display: none !important; }
 .menu-panel {
-  width: min(440px, 94vw); max-height: 92vh; overflow-y: auto; padding: 18px 20px;
+  width: min(440px, 94vw); max-height: 92vh; overflow-y: auto; touch-action: pan-y; padding: 18px 20px;
   background: rgba(12,17,24,.92); border: 1px solid rgba(255,255,255,.14); border-radius: 10px;
   -webkit-user-select: none; user-select: none;
 }
@@ -78,8 +78,14 @@ html, body {
 .menu-row output { text-align: right; opacity: .8; font-variant-numeric: tabular-nums; }
 .pause-btn {
   position: fixed; right: calc(10px + env(safe-area-inset-right)); top: calc(10px + env(safe-area-inset-top));
-  width: 44px; height: 44px; border-radius: 8px; z-index: 25; font-size: 22px; color: #fff;
-  background: rgba(0,0,0,.4); border: 1px solid rgba(255,255,255,.35);
+  width: 44px; height: 44px; border-radius: 8px; z-index: 25; font-size: calc(var(--u, 44px) * .5); color: #fff;
+  background: rgba(0,0,0,.4); border: 1px solid rgba(255,255,255,.35); padding: 0; touch-action: none;
+}
+/* 量測 env(safe-area-inset-*) 用（--sa-* 可覆寫，測試時模擬瀏海） */
+.safe-probe {
+  position: fixed; left: 0; top: 0; width: 0; height: 0; visibility: hidden; pointer-events: none;
+  padding: var(--sa-t, env(safe-area-inset-top, 0px)) var(--sa-r, env(safe-area-inset-right, 0px))
+    var(--sa-b, env(safe-area-inset-bottom, 0px)) var(--sa-l, env(safe-area-inset-left, 0px));
 }
 
 /* ---- Credits ---- */

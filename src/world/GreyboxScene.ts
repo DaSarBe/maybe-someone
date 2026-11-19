@@ -20,6 +20,7 @@ export class GreyboxScene implements Scene {
   private game!: Game;
   private hud: DebugHud | null = null;
   private menu: PauseMenu | null = null;
+  private mc: MobileControls | null = null;
   private fire: TestFire | null = null;
   private zone: ReverbZone | null = null;
   private zoneType: ReverbType = 'outdoor';
@@ -44,9 +45,9 @@ export class GreyboxScene implements Scene {
     this.player.teleport(this.map.spawn.position, this.map.spawn.yaw);
 
     if (this.opts.showHud) this.hud = new DebugHud(game.container, game.bus, touch);
-    if (touch) new MobileControls(game.container, game.input);
+    if (touch) this.mc = new MobileControls(game.container, game.input, game.layout, game.controls);
     this.menu = new PauseMenu(game.container, game.input, game.audio, {
-      touch, debug: game.debug,
+      touch, debug: game.debug, game,
       extra: this.opts.onExit ? [{ label: '回到未來基地', onClick: this.opts.onExit }] : [],
     });
 
@@ -58,7 +59,7 @@ export class GreyboxScene implements Scene {
     this.hud?.dispose();
     this.menu?.dispose();
     this.fire?.dispose();
-    this.game.container.querySelector('.mc')?.remove();
+    this.mc?.dispose();
   }
 
   resize(w: number, h: number): void {

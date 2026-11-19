@@ -218,6 +218,7 @@ export class WeaponSystem {
       camera.updateProjectionMatrix();
     }
     input.lookScale = (1 + (targetFov / BASE_FOV - 1) * 0.9) * this.assistScale;
+    input.ads = this.ads;
     player.speedScale = (h ? 1 + (h.adsMoveScale - 1) * adsE : 1) * health.healMoveScale;
     player.sprintBlocked = this.ads > 0.2 || health.healing || (!!w && input.isDown('fire') && !w.reloading);
 

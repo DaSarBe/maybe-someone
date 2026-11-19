@@ -21,12 +21,19 @@
   background: rgba(7,11,18,.78); border: 1px solid rgba(255,211,90,.55); border-radius: 6px;
   box-shadow: 0 0 12px rgba(255,211,90,.25); z-index: 20; pointer-events: none;
 }
-.hud-prompt {
+.hud-promptbox {
   position: fixed; left: 50%; bottom: 26%; transform: translateX(-50%); z-index: 21;
+  display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none;
+}
+.hud-prompt {
   font: 600 16px/1.3 inherit; font-family: inherit; color: #eaffff; padding: 9px 18px; border-radius: 8px;
   background: rgba(7,11,18,.82); border: 1px solid var(--neon); box-shadow: 0 0 14px rgba(53,225,255,.35);
   pointer-events: none; white-space: nowrap;
 }
+/* 手機版面：元素大小由按鍵配置決定，長文字改成換行 */
+.hud-promptbox.lay { justify-content: flex-end; }
+.hud-promptbox.lay .hud-progress { width: 100%; }
+.hud-promptbox.lay .hud-prompt { max-width: 100%; white-space: normal; font-size: 14px; padding: 6px 10px; text-align: center; line-height: 1.25; }
 .hud-prompt.clickable { pointer-events: auto; cursor: pointer; }
 .hud-timer {
   position: fixed; left: 50%; top: calc(8px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 20;
@@ -42,9 +49,8 @@
 .hud-timer.danger .bar i { background: #ff4040; }
 @keyframes blink { 50% { background: rgba(120,10,10,.85); } }
 .hud-progress {
-  position: fixed; left: 50%; bottom: 34%; transform: translateX(-50%); z-index: 21; width: min(300px, 70vw);
-  display: flex; flex-direction: column; gap: 5px; align-items: center; font-size: 14px; pointer-events: none;
-  text-shadow: 0 0 4px #000;
+  width: min(300px, 70vw); display: flex; flex-direction: column; gap: 5px; align-items: center; font-size: 14px;
+  pointer-events: none; text-shadow: 0 0 4px #000;
 }
 .hud-progress .bar { width: 100%; height: 10px; }
 .hud-banner {

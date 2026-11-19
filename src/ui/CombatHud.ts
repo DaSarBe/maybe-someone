@@ -1,4 +1,5 @@
 import { el } from './dom';
+import type { LayoutManager } from './layout/LayoutManager';
 
 /** 戰鬥 HUD：準心（動態散佈）、命中標記、彈藥 / 生命 / 護甲、受傷暈影與方向指示、治療進度 */
 export class CombatHud {
@@ -21,8 +22,12 @@ export class CombatHud {
   private hitTimer = 0;
   private vigTimer = 0;
   private last = { gap: -1, ammo: '', hp: -1, armor: -1 };
+  /** 「換彈中」樣式掛在哪個元素上（電腦版是整個面板，手機版是彈藥框） */
+  private ammoHost: HTMLElement = this.panel;
+  private unbinds: (() => void)[] = [];
 
-  constructor(parent: HTMLElement, touch: boolean) {
+  /** layout：手機觸控版面。有的話，彈藥 / 血量 / 護甲 / 受擊方向各自獨立定位；沒有就用原本的整塊面板（電腦版）。 */
+  constructor(parent: HTMLElement, touch: boolean, layout: LayoutManager | null = null) {
     for (const c of ['t', 'b', 'l', 'r']) this.xh.appendChild(el('i', c));
     this.xh.appendChild(el('s'));
     for (const c of ['a', 'b', 'c', 'd']) this.hitm.appendChild(el('i', c));
@@ -34,13 +39,28 @@ export class CombatHud {
     const armor = el('div', 'cb-bar cb-armor');
     armor.append(this.armorFill, this.armorText);
     this.healWrap.append(el('span', '', '治療中'), (() => { const b = el('div', 'cb-healbar'); b.appendChild(this.healBar); return b; })());
-    this.panel.append(this.wName, this.ammo, reload, hp, armor);
-    if (touch) this.panel.classList.add('touch');
-    this.root.append(this.vig, this.low, this.dirs, this.xh, this.hitm, this.healWrap, this.panel);
+    if (layout) {
+      const ammoBox = el('div', 'cb-tbox cb-ammobox');
+      ammoBox.append(this.wName, this.ammo, reload);
+      const hpBox = el('div', 'cb-tbox cb-hpbox');
+      this.healWrap.classList.add('in-box');
+      hpBox.append(hp, this.healWrap);
+      const armorBox = el('div', 'cb-tbox cb-armorbox');
+      armorBox.appendChild(armor);
+      this.ammoHost = ammoBox;
+      this.root.append(this.vig, this.low, this.dirs, this.xh, this.hitm, ammoBox, hpBox, armorBox);
+      this.unbinds.push(
+        layout.bind('ammo', ammoBox), layout.bind('hp', hpBox), layout.bind('armor', armorBox), layout.bind('hitdir', this.dirs),
+      );
+    } else {
+      this.panel.append(this.wName, this.ammo, reload, hp, armor);
+      if (touch) this.panel.classList.add('touch');
+      this.root.append(this.vig, this.low, this.dirs, this.xh, this.hitm, this.healWrap, this.panel);
+    }
     parent.appendChild(this.root);
   }
 
-  dispose(): void { this.root.remove(); }
+  dispose(): void { this.unbinds.forEach((u) => u()); this.root.remove(); }
 
   setVisible(v: boolean): void { this.root.classList.toggle('hidden', !v); }
 
@@ -62,7 +82,7 @@ export class CombatHud {
         : '';
     }
     this.reloadBar.style.width = reloading ? `${Math.round(reloadProgress * 100)}%` : '0';
-    this.panel.classList.toggle('reloading', reloading);
+    this.ammoHost.classList.toggle('reloading', reloading);
   }
 
   setHealth(hp: number, max: number, armorDur: number, armorMax: number): void {

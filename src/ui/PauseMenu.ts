@@ -1,6 +1,9 @@
 import type { Input } from '../core/Input';
 import type { AudioManager, AudioSettings } from '../audio/AudioManager';
 import { Credits } from './Credits';
+import type { Game } from '../core/Game';
+import { buildControlsPanel } from './ControlsPanel';
+import { LayoutEditor } from './layout/LayoutEditor';
 
 export interface MenuButton {
   label: string;
@@ -30,8 +33,11 @@ export class PauseMenu {
   private open = true;
   private downOnBackdrop = false;
   private menuBtn: HTMLButtonElement | null = null;
+  private controlsEl: HTMLElement | null = null;
+  private editor: LayoutEditor | null = null;
+  private unbindMenu: (() => void) | null = null;
   private onKey = (e: KeyboardEvent) => {
-    if (e.code === 'Escape' && this.debugToggle) this.setOpen(!this.open);
+    if (e.code === 'Escape' && this.debugToggle && !this.editor) this.setOpen(!this.open);
   };
 
   constructor(
@@ -40,6 +46,8 @@ export class PauseMenu {
     private audio: AudioManager,
     private opts: {
       touch: boolean; debug: boolean;
+      /** 用來存取控制設定、按鍵配置與陀螺儀 */
+      game: Game;
       hint?: string;
       extra?: MenuButton[];
       /** 回傳 true 時，失去 Pointer Lock 不開啟暫停選單（有介面開著） */
@@ -71,8 +79,18 @@ export class PauseMenu {
 
     this.credits = new Credits(() => { this.audio.playUi('back'); this.showCredits(false); });
 
+    const controlsBtn = document.createElement('button');
+    controlsBtn.className = 'menu-btn';
+    controlsBtn.textContent = '操作設定';
+    controlsBtn.addEventListener('click', () => { this.audio.playUi('select'); this.showControls(); });
+
+    const layoutBtn = document.createElement('button');
+    layoutBtn.className = 'menu-btn';
+    layoutBtn.textContent = '按鍵配置';
+    layoutBtn.addEventListener('click', () => { this.audio.playUi('select'); this.openEditor(); });
+
     this.main.className = 'menu-main';
-    this.main.append(this.title, hint, resume, sliders, creditsBtn);
+    this.main.append(this.title, hint, resume, sliders, controlsBtn, layoutBtn, creditsBtn);
     for (const b of opts.extra ?? []) this.main.appendChild(this.makeExtra(b));
     this.panel.append(this.main, this.credits.el);
     this.el.append(this.panel);
@@ -92,6 +110,7 @@ export class PauseMenu {
       this.menuBtn.setAttribute('aria-label', '選單');
       this.menuBtn.addEventListener('click', () => { this.audio.playUi(this.open ? 'close' : 'open'); this.setOpen(!this.open); });
       parent.appendChild(this.menuBtn);
+      this.unbindMenu = opts.game.layout.bind('menu', this.menuBtn);
       this.setOpen(false);
     } else if (opts.debug) {
       this.setOpen(false); // 自動化測試：預設不擋畫面，按 Esc 開關
@@ -158,10 +177,37 @@ export class PauseMenu {
   private showCredits(v: boolean): void {
     this.credits.show(v);
     this.main.classList.toggle('hidden', v);
+    if (!v) this.closeControls();
+  }
+
+  private showControls(): void {
+    this.closeControls();
+    this.controlsEl = buildControlsPanel(this.opts.game, () => { this.audio.playUi('back'); this.closeControls(); });
+    this.panel.appendChild(this.controlsEl);
+    this.panel.classList.add('wide');
+    this.main.classList.add('hidden');
+  }
+
+  private closeControls(): void {
+    if (!this.controlsEl) return;
+    this.controlsEl.remove();
+    this.controlsEl = null;
+    this.panel.classList.remove('wide');
+    this.main.classList.remove('hidden');
+  }
+
+  /** 全螢幕的按鍵配置編輯器；結束後回到暫停選單 */
+  private openEditor(): void {
+    this.el.style.display = 'none';
+    this.editor = new LayoutEditor(this.opts.game, () => {
+      this.editor = null;
+      this.el.style.display = '';
+    });
   }
 
   setOpen(open: boolean): void {
     this.open = open;
+    if (open) this.input.releaseToggles(); // 暫停時放掉「切換」鎖定的瞄準 / 蹲下
     this.title.textContent = this.hadLock || this.opts.touch || this.opts.debug ? '已暫停' : '點擊畫面開始';
     this.el.classList.toggle('hidden', !open);
     if (!open) this.showCredits(false);
@@ -178,7 +224,10 @@ export class PauseMenu {
   dispose(): void {
     window.removeEventListener('keydown', this.onKey);
     this.input.onLockChange = null;
+    this.unbindMenu?.();
     this.menuBtn?.remove();
+    this.editor?.dispose();
+    this.editor = null;
     this.el.remove();
   }
 }

@@ -5,6 +5,9 @@ import { AudioManager } from '../audio/AudioManager';
 import { AudioLoadBadge } from '../ui/AudioLoadBadge';
 import { LocalSaveService, type SaveService } from '../save/SaveService';
 import { EconomyService } from '../economy/EconomyService';
+import { ControlSettingsStore } from '../settings/ControlSettings';
+import { LayoutManager } from '../ui/layout/LayoutManager';
+import { Gyro } from '../input/Gyro';
 
 export interface Scene {
   enter(game: Game): void;
@@ -47,6 +50,11 @@ export class Game {
   readonly save: SaveService = new LocalSaveService();
   /** 所有會改變存檔的操作都走這裡 */
   readonly economy: EconomyService = new EconomyService(this.save);
+  /** 控制設定（靈敏度、陀螺儀、按鍵模式…） */
+  readonly controls: ControlSettingsStore;
+  /** 觸控版面（按鈕與 HUD 的位置、大小、透明度） */
+  readonly layout: LayoutManager;
+  readonly gyro: Gyro | null;
   scenes!: SceneFactory;
   readonly audio: AudioManager;
   readonly isTouch: boolean;
@@ -75,6 +83,11 @@ export class Game {
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     container.appendChild(this.canvas);
     this.input = new Input(this.canvas, { touch: this.isTouch, debug: this.debug });
+    this.controls = new ControlSettingsStore(this.save, this.isTouch);
+    this.input.setSettings(this.controls.get());
+    this.controls.subscribe((v) => this.input.setSettings(v));
+    this.layout = new LayoutManager(this.save);
+    this.gyro = this.isTouch ? new Gyro(this.input, this.controls) : null;
 
     window.addEventListener('resize', () => this.resize());
     window.visualViewport?.addEventListener('resize', () => this.resize());

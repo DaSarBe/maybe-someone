@@ -1,4 +1,5 @@
 import { clear, el, fmtCredits, fmtTime } from './dom';
+import type { LayoutManager } from './layout/LayoutManager';
 
 /** 基地與 Raid 共用的 HUD：信用點、互動提示、穩定度倒數、進度條 */
 export class GameHud {
@@ -11,10 +12,13 @@ export class GameHud {
   private progressLabel = el('span');
   private progressFill = el('i');
   private banner = el('div', 'hud-banner hidden');
+  private promptBox = el('div', 'hud-promptbox');
   private promptHandler: (() => void) | null = null;
   private roots: HTMLElement[];
+  private unbinds: (() => void)[] = [];
 
-  constructor(parent: HTMLElement) {
+  /** layout：手機觸控版面（HUD 位置、大小、透明度由使用者的按鍵配置決定）；電腦版傳 null */
+  constructor(parent: HTMLElement, layout: LayoutManager | null = null) {
     document.body.classList.add('game-hud');
     this.prompt.type = 'button';
     this.prompt.addEventListener('click', () => this.promptHandler?.());
@@ -25,8 +29,16 @@ export class GameHud {
     const pbar = el('div', 'bar');
     pbar.appendChild(this.progressFill);
     this.progress.append(this.progressLabel, pbar);
-    this.roots = [this.credits, this.prompt, this.timer, this.progress, this.banner];
+    // 搜索進度條與互動提示是同一個元素（進度條在提示上方）
+    this.promptBox.append(this.progress, this.prompt);
+    this.roots = [this.credits, this.promptBox, this.timer, this.banner];
     parent.append(...this.roots);
+    if (layout) {
+      this.promptBox.classList.add('lay');
+      this.unbinds.push(
+        layout.bind('credits', this.credits), layout.bind('timer', this.timer), layout.bind('prompt', this.promptBox),
+      );
+    }
   }
 
   setCredits(n: number): void { this.credits.textContent = fmtCredits(n); }
@@ -65,6 +77,7 @@ export class GameHud {
 
   dispose(): void {
     document.body.classList.remove('game-hud');
+    this.unbinds.forEach((u) => u());
     for (const r of this.roots) r.remove();
   }
 }

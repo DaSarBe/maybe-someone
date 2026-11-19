@@ -16,6 +16,7 @@ import { LOOT_TABLES, type ContainerLootDef, type ContainerType } from '../data/
 import type { Slot } from '../items/Inventory';
 import { rollContainer } from '../items/LootTable';
 import { MobileControls } from '../player/MobileControls';
+import { ASSIST_SCALE } from '../settings/ControlSettings';
 import { PlayerController } from '../player/PlayerController';
 import { CombatHud } from '../ui/CombatHud';
 import { DebugHud } from '../ui/DebugHud';
@@ -97,6 +98,7 @@ export class RaidScene implements Scene {
   private chud!: CombatHud;
   private dbg: DebugHud | null = null;
   private menu: PauseMenu | null = null;
+  private mc: MobileControls | null = null;
   private vm = new Viewmodel();
   private trace!: WorldTrace;
   private loading: HTMLElement | null = null;
@@ -207,11 +209,11 @@ export class RaidScene implements Scene {
     this.player.teleport(arrival.position, arrival.yaw);
 
     this.ui = new Ui(game);
-    this.hud = new GameHud(game.container);
+    this.hud = new GameHud(game.container, touch ? game.layout : null);
     this.hud.showCredits(false);
-    this.chud = new CombatHud(game.container, touch);
+    this.chud = new CombatHud(game.container, touch, touch ? game.layout : null);
     if (this.opts.showHud !== false) this.dbg = new DebugHud(game.container, game.bus, touch);
-    if (touch) new MobileControls(game.container, game.input, { combat: true });
+    if (touch) this.mc = new MobileControls(game.container, game.input, game.layout, game.controls, { combat: true });
 
     // ---- 戰鬥系統 ----
     this.trace = new WorldTrace(this.trader ? [...map.surfaceMeshes, this.trader.hitbox] : map.surfaceMeshes);
@@ -232,8 +234,8 @@ export class RaidScene implements Scene {
     });
 
     this.menu = new PauseMenu(game.container, game.input, game.audio, {
-      touch, debug: game.debug,
-      hint: 'WASD 移動 ・ 左鍵射擊 ・ 右鍵瞄準 ・ R 換彈 ・ 1/2 或滾輪換槍 ・ 4 治療 ・ 按住 E 搜索 ・ Tab 背包 ・ K 模擬死亡（測試）・ Esc 暫停|左側搖桿移動 ・ 右側拖曳轉視角 ・ 按鈕射擊、瞄準、換彈、切換武器、治療 ・ 按住「互動」搜索',
+      touch, debug: game.debug, game,
+      hint: 'WASD 移動 ・ 左鍵射擊 ・ 右鍵瞄準 ・ R 換彈 ・ 1/2 或滾輪換槍 ・ 4 治療 ・ 按住 E 搜索 ・ Tab 背包 ・ K 模擬死亡（測試）・ Esc 暫停|左側搖桿移動 ・ 右側拖曳轉視角 ・ 左右兩側射擊鍵（右側可拖曳轉視角）・ 瞄準、換彈、切換武器、治療 ・ 按住「互動」搜索',
       isBlocked: () => this.ui.isOpen,
       extra: [
         { label: '模擬死亡（測試）', onClick: () => this.end('death'), confirm: '再按一次確認：你會失去所有物品' },
@@ -290,7 +292,8 @@ export class RaidScene implements Scene {
     this.dbg?.dispose();
     this.menu?.dispose();
     this.game.input.lookScale = 1;
-    this.game.container.querySelector('.mc')?.remove();
+    this.game.input.ads = 0;
+    this.mc?.dispose();
   }
 
   resize(w: number, h: number): void {
@@ -452,6 +455,7 @@ export class RaidScene implements Scene {
     this.hud.setProgress(null);
     this.chud.setVisible(false);
     this.game.input.lookScale = 1;
+    this.game.input.ads = 0;
     this.game.bus.emit('raidEnded', { outcome });
     this.ui.open(new ResultPanel(this.ui, r.result, () => {
       this.game.economy.acknowledgeResult();
@@ -594,7 +598,7 @@ export class RaidScene implements Scene {
     this.t += frameDt;
 
     // 觸控輔助瞄準：準心掃過敵人時降低轉視角的靈敏度（減速，不鎖定）
-    this.weapons.assistScale = game.isTouch && this.onTarget ? 0.55 : 1;
+    this.weapons.assistScale = game.isTouch && this.onTarget ? ASSIST_SCALE[game.controls.get().assist] : 1;
     this.player.updateCamera(alpha, frameDt);
     this.camera.updateMatrixWorld();
     if (!this.ended) {

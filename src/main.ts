@@ -1,6 +1,7 @@
 import './style.css';
 import './ui/panels.css';
 import './ui/combat.css';
+import './ui/layout/layout.css';
 import { Game } from './core/Game';
 import { GreyboxScene } from './world/GreyboxScene';
 import { HubScene } from './world/HubScene';
