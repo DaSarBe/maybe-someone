@@ -19,7 +19,8 @@ if (params.has('debug')) {
   (window as unknown as { __game: Game }).__game = game;
 }
 
-const showHud = params.get('hud') !== '0';
+// 除錯 HUD 只在 ?debug=1 或 ?hud=1 時顯示（?hud=0 可強制關閉）
+const showHud = params.get('hud') === '1' || (params.has('debug') && params.get('hud') !== '0');
 game.scenes = {
   hub: () => new HubScene({ showHud }),
   raid: () => new TestRaidScene({ showHud }),
