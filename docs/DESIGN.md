@@ -99,9 +99,12 @@ public/assets/            models/ sounds/ sprites/ textures/ + CREDITS.md + mani
 | 互動 / 換彈 / 背包 | E / R / Tab | 按鈕 |
 | 手電筒 / 雷射開關（有裝才有用） | T | 「燈」按鈕（版面元素 `flashlight`，預設在左側搖桿上方） |
 
-## 6. 第一張地圖（暫定）
-由素材取得情況決定，候選：「1990 年代港口工業區」（貨櫃＝金屬、碼頭＝木頭、倉庫＝水泥、空地＝碎石、海邊＝水）。
-材質種類多，很適合展示依場地變化的音效。
+## 6. 第一張地圖：1990 年代港口工業區（harbor_1990，★★）
+- 陸地約 260×230m（海在北側），基礎停留 15 分鐘。程式在 `world/maps/harbor1990/`（各區一個檔案，`core.ts` 為不需 DOM 的幾何與碰撞，`data.ts` 為點位，`navData.ts` 為離線產生的導航圖）。
+- 區域：碼頭與貨船（甲板、船艙、機房、貨艙）、燈塔防波堤、貨櫃堆場（可上貨櫃頂）、三層倉庫（吊車軌道與駕駛室）、**海順海運 5 層辦公大樓**（1F 大廳～5F 董事長室與頂樓狙擊點、樓梯間、電梯井）、辦公室與警衛室、卡車停車場與加油站、魚市場（時代商行）、排水隧道、**地下停車場 B1／B2**（金庫、服務隧道接排水隧道）、**鐵道貨運站**、**台式老街與土地公廟**、**修船廠乾塢**、油槽區、廢車場、南大門。
+- 資料規模：抵達點 6、搜刮點 75（保險櫃 4，5F 固定）、撤離點 5（南大門、碼頭快艇固定；停車場、貨運專用線、頂樓直升機隨機）、敵人出生點 29（每場最多同時 12 個，三種陣營巡邏路線交會）、導航圖約 2,250 節點。高價值物資在頂樓、貨艙、B2。
+- 效能：分區可見性（`visibility.ts`，室外不畫室內細節、在樓層內只畫相鄰樓層、地下才畫停車場與隧道）、依區域與材質合併、道具 InstancedMesh、陰影跟隨相機 ±80m；目標 draw calls < 150、三角形 < 300k。
+- 改了幾何後重新產生導航圖：`GEN_HARBOR_NAV=1 npx vitest run tests/harbor-nav-gen.test.ts`；新點位需離障礙物 0.4m 以上，樓梯口與門口前方不可擺家具（測試會檢查）。
 
 ## 7. M4 戰鬥與敵人 AI 約定（Sonnet A）
 
@@ -119,7 +122,7 @@ public/assets/            models/ sounds/ sprites/ textures/ + CREDITS.md + mani
 ## 8. M4c 整合約定
 
 - **地圖載入**：`maps/index.ts` 的 harbor_1990 用動態 import（獨立 chunk，不進主 bundle）；測試地圖用 `?scene=raid&map=test`（基礎 5 分鐘）。`RaidMap.ownsLighting` = true 時 RaidScene 不呼叫 `setupLighting`（光源、霧、天空在地圖 root 內）；`RaidMap.lightAt(pos)` 提供敵人感知用的亮度（harbor：室內外底值 + 點光源距離衰減）；`RaidMap.ambience` 設定地圖專屬環境音（浪聲定位、海鷗、遠方汽笛），由 `AudioManager.startMapAmbience` 執行。
-- **時空穩定度時間** = 時代基礎時間（`eras.ts baseDuration`，harbor_1990 = 12 分鐘）+ 穩定器升級加成（每級 +45 秒）；測試地圖 5 分鐘。
+- **時空穩定度時間** = 時代基礎時間（`eras.ts baseDuration`，harbor_1990 = 15 分鐘）+ 穩定器升級加成（每級 +45 秒）；測試地圖 5 分鐘。
 - **負重**（`items/Inventory.ts`、`items/Profile.ts`）：
   - **計重**：背包 / 口袋格子內的物品照原重量；**穿在身上的裝備**（主武器含配件、副武器含配件、護甲、頭盔、背包本身）只算一半（`WORN_WEIGHT_FACTOR = 0.5`，`equipmentWeight`）。保險袋不計重（維持原狀）。物品詳細資訊中，穿戴中的裝備顯示「計重 x.x kg（穿戴 ×0.5）」，負重數字旁的 ⓘ 提示「穿戴裝備以一半重量計算」。
   - **上限** = 背包（或口袋）`maxWeight` + 升級「體能訓練」（`fitness`，5 級，每級 +3 kg，最多 +15；₵3,000 / 7,500 / 15,000 / 28,000 / 48,000）。
