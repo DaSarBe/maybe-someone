@@ -136,3 +136,25 @@
 - `enemy.alert` 第 2、3 段（目前只找到一段 CC-BY 的「Hey」）
 - 模型：貨櫃、起重機、堆高機、路燈、繫纜樁。已排除的候選：container-0 與 shipping-containers-low-poly（僅 .blend，或授權說明與頁面標示不一致）、forklift（.blend，CC-BY 4.0）、lamp-post（僅 PNG）。
 - 已排除：CC-BY 3.0 的 soldier voice acting、11-male-human paindeath（CC-BY 3.0）、aargh-male-screams（CC-BY 3.0）；僅 `.blend` 的 oil drum、wooden pallet、smg 等。
+
+## 槍械配件（素材助理，2026-11-20）
+
+全部為 **CC0 1.0**，無需署名；未使用 CC-BY 素材。檔案未轉換，保留原格式；未經試裝或目視確認，合併前請在遊戲中試裝並檢查比例。
+
+| 檔案 | manifest key | 原作 | 來源網址 | 格式 | 三角形數 | 備註 |
+|---|---|---|---|---|---|---|
+| models/attachments/Scope_1.obj（+ .mtl） | att_scope2x | Quaternius，Ultimate Gun Pack（July 2019），Accessories/Scope_1 | https://opengameart.org/content/low-poly-guns-pack （檔案 ultimate_gun_pack_by_quaternius.zip） | OBJ+MTL | 412 | 2 倍鏡為依尺寸的推測，未目視確認 |
+| models/attachments/Scope_2.obj（+ .mtl） | att_scope4x | 同上，Accessories/Scope_2 | 同上 | OBJ+MTL | 468 | 4 倍（狙擊）鏡為依尺寸的推測，未目視確認 |
+| models/attachments/Silencer_1.obj（+ .mtl） | att_suppressor | 同上，Accessories/Silencer_1 | 同上 | OBJ+MTL | 248 | 全長消音器 |
+| models/attachments/Grip.obj（+ .mtl） | att_grip | 同上，Accessories/Grip | 同上 | OBJ+MTL | 796 | 垂直前握把 |
+| models/attachments/Flashlight.obj（+ .mtl） | att_flashlight | 同上，Accessories/Flashlight | 同上 | OBJ+MTL | 156 | 手電筒（額外項目） |
+| models/attachments/RedDot_East.glb | att_reddot | Pichuliru，CC0 Flat Gun Attachments | https://opengameart.org/content/cc0-flat-gun-attachments | glb（無外部貼圖） | 440 | 紅點鏡，East 變體（磚紅色鏡片）；West 變體同包 |
+| models/attachments/Holographic_East.glb | att_holo | 同上 | 同上 | glb | 432 | 全息瞄具，East 變體 |
+| models/attachments/Laser_East.glb | att_laser | 同上 | 同上 | glb | 314 | 雷射模組，East 變體 |
+
+來源說明：Quaternius 的 Ultimate Gun Pack 隨 OGA「Low Poly Guns Pack」頁面（作者 quaternius，授權 CC0）發佈；與現有 FPS Pack 同一作者，風格一致，因此優先使用。Quaternius 的 OBJ 單位與 Pichuliru 的 GLB 不同（以 Rifle 約 9.6 單位長推估，OBJ 約為 GLB 比例的 10 倍），整合時需個別縮放。
+
+未找到的項目（見 manifest.json `missing`）：
+- 槍口制退器（att_compensator）：無 CC0 來源。
+- 擴容彈匣（att_mag_ext）：無 CC0 來源（Violence 的 itch.io 套件為 CC0 且有彈匣部件，但不在允許的來源內，未使用）。
+- 倍鏡鏡框遮罩、紅點發光點、全息圓圈貼圖：未找到 CC0 PNG，已跳過，可由程式繪製。

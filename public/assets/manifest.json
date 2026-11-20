@@ -307,6 +307,62 @@
       "path": "models/harbor/prop_truck.glb",
       "animations": [],
       "note": "Quaternius (CC0) truck from @netforge/asset-library-files; glb, meshopt-compressed (EXT_meshopt_compression)."
+    },
+    "att_scope2x": {
+      "path": "models/attachments/Scope_1.obj",
+      "format": "obj",
+      "animations": [],
+      "tris": 412,
+      "note": "2x scope guess by size (2.10 x 0.38 x 0.31, same family as Scope_2/3). Not visually verified. Quaternius Ultimate Gun Pack (July 2019, OBJ/Accessories, CC0 1.0 via OGA low-poly-guns-pack). OBJ+MTL, no textures, untriangulated quads/ngons."
+    },
+    "att_scope4x": {
+      "path": "models/attachments/Scope_2.obj",
+      "format": "obj",
+      "animations": [],
+      "tris": 468,
+      "note": "4x (sniper) scope guess, larger objective (2.08 x 0.40 x 0.36). Not visually verified. Quaternius Ultimate Gun Pack (July 2019, OBJ/Accessories, CC0 1.0 via OGA low-poly-guns-pack). OBJ+MTL, no textures, untriangulated quads/ngons."
+    },
+    "att_suppressor": {
+      "path": "models/attachments/Silencer_1.obj",
+      "format": "obj",
+      "animations": [],
+      "tris": 248,
+      "note": "Full-length can (1.74 x 0.32 x 0.33). Quaternius Ultimate Gun Pack (July 2019, OBJ/Accessories, CC0 1.0 via OGA low-poly-guns-pack). OBJ+MTL, no textures, untriangulated quads/ngons."
+    },
+    "att_grip": {
+      "path": "models/attachments/Grip.obj",
+      "format": "obj",
+      "animations": [],
+      "tris": 796,
+      "note": "Vertical foregrip (0.27 x 0.67 x 0.28). Quaternius Ultimate Gun Pack (July 2019, OBJ/Accessories, CC0 1.0 via OGA low-poly-guns-pack). OBJ+MTL, no textures, untriangulated quads/ngons."
+    },
+    "att_flashlight": {
+      "path": "models/attachments/Flashlight.obj",
+      "format": "obj",
+      "animations": [],
+      "tris": 156,
+      "note": "Extra key (flashlight option). Quaternius Ultimate Gun Pack (July 2019, OBJ/Accessories, CC0 1.0 via OGA low-poly-guns-pack). OBJ+MTL, no textures, untriangulated quads/ngons."
+    },
+    "att_reddot": {
+      "path": "models/attachments/RedDot_East.glb",
+      "format": "glb",
+      "animations": [],
+      "tris": 440,
+      "note": "Red dot (0.037 x 0.041 x 0.080 m). CC0 Flat Gun Attachments by Pichuliru (OGA cc0-flat-gun-attachments, CC0 1.0). glb, self-contained (no textures), flat colours, KHR_materials_transmission on lens. East variant (brick-red tint); West variant also in pack."
+    },
+    "att_holo": {
+      "path": "models/attachments/Holographic_East.glb",
+      "format": "glb",
+      "animations": [],
+      "tris": 432,
+      "note": "Holographic sight (0.039 x 0.055 x 0.076 m). CC0 Flat Gun Attachments by Pichuliru (OGA cc0-flat-gun-attachments, CC0 1.0). glb, self-contained (no textures), flat colours, KHR_materials_transmission on lens. East variant."
+    },
+    "att_laser": {
+      "path": "models/attachments/Laser_East.glb",
+      "format": "glb",
+      "animations": [],
+      "tris": 314,
+      "note": "Laser module (0.038 x 0.025 x 0.054 m). CC0 Flat Gun Attachments by Pichuliru (OGA cc0-flat-gun-attachments, CC0 1.0). glb, self-contained (no textures), flat colours, KHR_materials_transmission on lens. East variant."
     }
   },
   "textures": {
@@ -349,6 +405,11 @@
     "models.prop_crane",
     "models.prop_forklift (only CC-BY 4.0 .blend found)",
     "models.prop_lamp_post (lamp_post_0 pack contains a PNG only)",
-    "models.prop_bollard"
+    "models.prop_bollard",
+    "models.att_compensator (no CC0 muzzle brake found; CGTrader/free listings are not CC0)",
+    "models.att_mag_ext (no CC0 extended magazine found in allowed sources; Violence itch pack is CC0 with a magazine part but is not an allowed source)",
+    "textures.att_scope_reticle (crosshair mask PNG not sourced; draw in code or skip)",
+    "textures.att_reddot_glow (glow dot not sourced; draw in code or skip)",
+    "textures.att_holo_ring (ring mask not sourced; draw in code or skip)"
   ]
 }
