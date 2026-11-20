@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { fitModel, loadModel } from '../../Models';
 import type { Surface } from '../../Surface';
 import type { HarborCore, HarborCoreOptions } from './core';
+import { HarborVisibility } from './visibility';
 import type { PropKind, PropPlacement, SignSpec } from './util';
 
 /** 只在瀏覽器執行的視覺層：貼圖、招牌、模型實例、天空、光線、海面與動畫 */
@@ -133,9 +134,11 @@ export async function loadHarborTextures(): Promise<NonNullable<HarborCoreOption
 }
 
 // ---------------------------------------------------------------- 招牌（合併成一張圖集、一個 draw call）
-function buildSigns(signs: SignSpec[]): THREE.Mesh | null {
-  if (!signs.length) return null;
-  const ATLAS = 2048, CELL_W = 400;
+function buildSigns(allSigns: SignSpec[]): THREE.Mesh | null {
+  if (!allSigns.length) return null;
+  // 招牌很多（100+）：依高寬比由高到低排，一列一列塞進 2048 的圖集
+  const signs = [...allSigns].sort((a, b) => b.h / b.w - a.h / a.w);
+  const ATLAS = 2048, CELL_W = 288;
   const atlas = document.createElement('canvas');
   atlas.width = atlas.height = ATLAS;
   const g = atlas.getContext('2d')!;
@@ -143,23 +146,33 @@ function buildSigns(signs: SignSpec[]): THREE.Mesh | null {
   const pos: number[] = [], uv: number[] = [], idx: number[] = [];
   let cx = 0, cy = 0, rowH = 0;
   for (const s of signs) {
-    const cw = CELL_W, ch = Math.max(48, Math.min(260, Math.round((CELL_W * s.h) / s.w)));
+    const cw = s.vertical ? 64 : CELL_W, ch = s.vertical ? 160 : Math.max(40, Math.min(160, Math.round((CELL_W * s.h) / s.w)));
+    if (cy + ch > ATLAS) { console.warn('[harbor] sign atlas full, skipping', s.text); continue; }
     if (cx + cw > ATLAS) { cx = 0; cy += rowH + 4; rowH = 0; }
     rowH = Math.max(rowH, ch);
     // 畫招牌
     g.fillStyle = s.bg; g.fillRect(cx, cy, cw, ch);
     g.strokeStyle = s.fg; g.lineWidth = Math.max(2, ch / 22);
     g.strokeRect(cx + 4, cy + 4, cw - 8, ch - 8);
-    const fs = Math.floor(ch * 0.62 * (s.font ?? 0.85) / 0.85);
-    g.font = `700 ${fs}px ${CJK}`;
-    const w = g.measureText(s.text).width;
-    const k = Math.min(1, (cw - 28) / w);
-    g.save();
-    g.translate(cx + cw / 2, cy + ch / 2 + 2);
-    g.scale(k, 1);
-    g.fillStyle = s.fg; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText(s.text, 0, 0);
-    g.restore();
+    if (s.vertical) {
+      // 直書：一個字一格，由上往下排
+      const chars = [...s.text];
+      const fs = Math.floor(Math.min(cw * 0.72, (ch - 12) / chars.length * 0.92));
+      g.font = `700 ${fs}px ${CJK}`;
+      g.fillStyle = s.fg; g.textAlign = 'center'; g.textBaseline = 'middle';
+      chars.forEach((chr, i) => g.fillText(chr, cx + cw / 2, cy + 8 + ((ch - 16) * (i + 0.5)) / chars.length));
+    } else {
+      const fs = Math.floor(ch * 0.62 * (s.font ?? 0.85) / 0.85);
+      g.font = `700 ${fs}px ${CJK}`;
+      const w = g.measureText(s.text).width;
+      const k = Math.min(1, (cw - 28) / w);
+      g.save();
+      g.translate(cx + cw / 2, cy + ch / 2 + 2);
+      g.scale(k, 1);
+      g.fillStyle = s.fg; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(s.text, 0, 0);
+      g.restore();
+    }
     // 幾何
     const rx = Math.cos(s.yaw) * s.w / 2, rz = -Math.sin(s.yaw) * s.w / 2, ry = s.h / 2;
     const base = pos.length / 3;
@@ -257,12 +270,15 @@ function mergeParts(parts: { geo: THREE.BufferGeometry; mat: THREE.Material; loc
   return out;
 }
 
-async function buildProps(props: PropPlacement[]): Promise<THREE.InstancedMesh[]> {
+async function buildProps(props: PropPlacement[], regionGroups: Map<string, THREE.Object3D>): Promise<THREE.InstancedMesh[]> {
   const out: THREE.InstancedMesh[] = [];
-  const byKind = new Map<PropKind, PropPlacement[]>();
-  for (const p of props) { const l = byKind.get(p.kind) ?? []; l.push(p); byKind.set(p.kind, l); }
+  // 依「種類 × 區域」分組：每個區域的道具掛在該區域的 Group 底下，跟著區域一起顯示 / 隱藏 / 視錐剔除
+  const byKind = new Map<string, PropPlacement[]>();
+  for (const p of props) { const k = `${p.kind}|${p.region ?? 'world'}`; const l = byKind.get(k) ?? []; l.push(p); byKind.set(k, l); }
   const place = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), pp = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
-  for (const [kind, list] of byKind) {
+  for (const [key, list] of byKind) {
+    const [kindName, regionName] = key.split('|');
+    const kind = kindName as PropKind;
     const cfg = KINDS[kind];
     const obj = cfg.model ? await loadModel(cfg.model) : null;
     const parts: { geo: THREE.BufferGeometry; mat: THREE.Material; local: THREE.Matrix4 }[] = [];
@@ -282,16 +298,22 @@ async function buildProps(props: PropPlacement[]): Promise<THREE.InstancedMesh[]
       const im = new THREE.InstancedMesh(part.geo, part.mat, list.length);
       im.name = `prop_${kind}`;
       im.userData.surface = cfg.surface;
+      const dark = list.some((p) => (p.shade ?? 1) !== 1);
+      const tint = new THREE.Color();
       list.forEach((p, i) => {
         q.setFromAxisAngle(up, p.yaw);
         sc.setScalar(p.size / cfg.ref);
         pp.set(p.x, p.y, p.z);
         place.compose(pp, q, sc).multiply(part.local);
         im.setMatrixAt(i, place);
+        if (dark) im.setColorAt(i, tint.setScalar(p.shade ?? 1));
       });
       im.instanceMatrix.needsUpdate = true;
-      im.castShadow = true;
+      const rg = regionGroups.get(regionName) ?? null;
+      // 小道具（木箱、油桶）不投射陰影：省下一半的 draw call，視覺上幾乎看不出差別（貨櫃、牆、屋頂的陰影才明顯）
+      im.castShadow = false;
       im.receiveShadow = true;
+      rg?.add(im);
       out.push(im);
     }
   }
@@ -308,7 +330,7 @@ export const ATMOSPHERE: Atmosphere = {
 };
 
 /** 傍晚的天空穹頂：跟著相機移動，不受霧影響 */
-function buildSky(): THREE.Mesh {
+function buildSky(onView?: (cam: THREE.Camera) => void): THREE.Mesh {
   const geo = new THREE.SphereGeometry(150, 16, 10);
   const pos = geo.getAttribute('position');
   const cols = new Float32Array(pos.count * 3);
@@ -327,6 +349,7 @@ function buildSky(): THREE.Mesh {
   sky.matrixAutoUpdate = false;
   sky.onBeforeRender = (_r, _s, camera) => {
     sky.matrixWorld.makeTranslation(camera.position.x, 0, camera.position.z);
+    onView?.(camera);
   };
   return sky;
 }
@@ -337,7 +360,7 @@ export function applyHarborAtmosphere(scene: THREE.Scene): void {
   scene.fog = new THREE.Fog(ATMOSPHERE.fogColor, ATMOSPHERE.fogNear, ATMOSPHERE.fogFar);
 }
 
-function buildLights(root: THREE.Object3D, coarse: boolean): void {
+function buildLights(root: THREE.Object3D, coarse: boolean): { sun: THREE.DirectionalLight; follow: (x: number, z: number) => void } {
   root.add(new THREE.HemisphereLight('#bcc4d8', '#9a8a82', 2.8));
   const sun = new THREE.DirectionalLight('#ffc794', 3.2);
   sun.position.set(-70, 45, 55);
@@ -345,30 +368,48 @@ function buildLights(root: THREE.Object3D, coarse: boolean): void {
   sun.castShadow = true;
   const size = coarse ? 1024 : 2048;
   sun.shadow.mapSize.set(size, size);
-  const e = 112, cam = sun.shadow.camera;
+  // 地圖變大（260 × 230m）：陰影只涵蓋相機周圍 ±80m（霧 150m 外本來就看不到），並對齊陰影貼圖的像素格避免閃爍
+  const e = 80, cam = sun.shadow.camera;
   cam.left = -e; cam.right = e; cam.top = e; cam.bottom = -e; cam.near = 5; cam.far = 220;
   sun.shadow.bias = -0.0006;
   sun.shadow.normalBias = 0.05;
   root.add(sun, sun.target);
+  const texel = (2 * e) / size, offset = sun.position.clone().sub(sun.target.position);
+  const follow = (x: number, z: number): void => {
+    const tx = Math.round(x / texel) * texel, tz = Math.round(z / texel) * texel;
+    if (tx === sun.target.position.x && tz === sun.target.position.z) return;
+    sun.target.position.set(tx, 0, tz);
+    sun.position.set(tx + offset.x, offset.y, tz + offset.z);
+  };
+  return { sun, follow };
 }
 
 // ---------------------------------------------------------------- 總裝
 export interface Decor {
   extraSurfaceMeshes: THREE.Mesh[];
+  /** 分區可見性（依最近一次算圖的相機位置；除錯與測試可以直接讀 stats） */
+  visibility: HarborVisibility;
   update(dt: number, elapsed: number): void;
 }
 
 export async function decorateHarbor(core: HarborCore): Promise<Decor> {
   const { ctx, root } = core;
   const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
-  buildLights(root, coarse);
-  root.add(buildSky());
+  const { follow } = buildLights(root, coarse);
+  // 分區可見性與陰影範圍都跟著「最近一次算圖的相機」走（相機位置在算圖時才知道，所以晚一幀生效）
+  const visibility = new HarborVisibility(core.regions);
+  const viewer = new THREE.Vector3(Infinity, 0, 0);
+  root.add(buildSky((cam) => { viewer.copy(cam.position); follow(cam.position.x, cam.position.z); }));
 
   const signs = buildSigns(ctx.signs);
   if (signs) root.add(signs);
 
-  const propMeshes = await buildProps(ctx.props);
-  for (const m of propMeshes) root.add(m);
+  const regionGroups = new Map<string, THREE.Object3D>(core.regions.map((r) => [r.meta.name, r.object]));
+  const propMeshes = await buildProps(ctx.props, regionGroups);
+  for (const m of propMeshes) if (!m.parent) root.add(m);
+  // 道具加進區域之後，區域的包圍盒要重算（可見性的距離判斷用）
+  for (const r of core.regions) { r.object.updateMatrixWorld(true); r.box.setFromObject(r.object); }
+  visibility.refresh();
 
   // 海面：略微起伏
   const seaGeo = new THREE.PlaneGeometry(520, 300, 26, 15);
@@ -399,7 +440,9 @@ export async function decorateHarbor(core: HarborCore): Promise<Decor> {
   const lights = ctx.lights;
   return {
     extraSurfaceMeshes: propMeshes,
+    visibility,
     update(_dt, t): void {
+      if (viewer.x !== Infinity) visibility.update(viewer);
       const p = seaGeo.getAttribute('position') as THREE.BufferAttribute;
       for (let i = 0; i < p.count; i++) {
         const x = seaBase[i * 3], z = seaBase[i * 3 + 2];

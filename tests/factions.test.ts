@@ -247,11 +247,11 @@ describe('corporations: perks, choose, switch', () => {
   });
   it('Chronos: +60 seconds of stability in every raid', () => {
     const { eco } = makeEconomy();
-    expect(eco.raidDurationSec('harbor_1990')).toBe(720);
+    expect(eco.raidDurationSec('harbor_1990')).toBe(900);
     eco.chooseCorp('corp_chronos');
-    expect(eco.raidDurationSec('harbor_1990')).toBe(780);
+    expect(eco.raidDurationSec('harbor_1990')).toBe(960);
     const r = eco.startRaid('harbor_1990');
-    expect(r).toMatchObject({ ok: true, duration: 780 });
+    expect(r).toMatchObject({ ok: true, duration: 960 });
     expect(CORPS.corp_chronos.stabilityBonus).toBe(60);
     expect(raidDuration({ ...createDefaultProfile(), corp: 'corp_chronos' }, 300)).toBe(360);
     expect(raidDuration({ ...createDefaultProfile(), corp: 'corp_aurora' }, 300)).toBe(300);

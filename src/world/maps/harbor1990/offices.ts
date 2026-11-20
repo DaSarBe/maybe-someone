@@ -4,20 +4,20 @@ import { Ctx } from './util';
 const GREEN = '#2f6a43'; // 綠色鐵窗
 const CHAIR = '#c0392b'; // 紅色塑膠椅
 
-function desk(c: Ctx, x: number, z: number, w = 1.6, d = 0.8, yaw90 = false): void {
+export function desk(c: Ctx, x: number, z: number, w = 1.6, d = 0.8, yaw90 = false): void {
   const [sx, sz] = yaw90 ? [d, w] : [w, d];
   c.mm('wood', '#7a5a3a', x - sx / 2, 0.03, z - sz / 2, x + sx / 2, 0.78, z + sz / 2);
   c.vis('wood', '#a98458', x - sx / 2 - 0.02, 0.78, z - sz / 2 - 0.02, x + sx / 2 + 0.02, 0.84, z + sz / 2 + 0.02);
 }
 /** 紅色塑膠椅（座面 + 椅背） */
-function chair(c: Ctx, x: number, z: number, facing: '+x' | '-x' | '+z' | '-z' = '+z'): void {
+export function chair(c: Ctx, x: number, z: number, facing: '+x' | '-x' | '+z' | '-z' = '+z'): void {
   c.mm('wood', CHAIR, x - 0.22, 0.03, z - 0.22, x + 0.22, 0.46, z + 0.22);
   const bx = facing === '+x' ? -0.22 : facing === '-x' ? 0.2 : 0, bz = facing === '+z' ? -0.22 : facing === '-z' ? 0.2 : 0;
   const bsx = facing === '+x' || facing === '-x' ? 0.04 : 0.44, bsz = facing === '+z' || facing === '-z' ? 0.04 : 0.44;
   c.vis('wood', CHAIR, x + bx - bsx / 2, 0.46, z + bz - bsz / 2, x + bx + bsx / 2, 0.9, z + bz + bsz / 2);
 }
 /** 綠色鐵窗（裝飾）：沿牆面，o = 牆外法線 */
-function grille(c: Ctx, cx: number, cy: number, cz: number, w: number, h: number, o: '+x' | '-x' | '+z' | '-z'): void {
+export function grille(c: Ctx, cx: number, cy: number, cz: number, w: number, h: number, o: '+x' | '-x' | '+z' | '-z'): void {
   const along = o === '+z' || o === '-z' ? 'x' : 'z';
   const off = 0.06;
   const px = o === '+x' ? off : o === '-x' ? -off : 0, pz = o === '+z' ? off : o === '-z' ? -off : 0;
@@ -37,6 +37,7 @@ export function buildOffice(c: Ctx): void {
   const { x0, x1, z0, z1, h, t } = OFFICE;
   const wc = '#aab3a3', inner = '#c9c5b2', ix0 = x0 + t, ix1 = x1 - t, iz0 = z0 + t, iz1 = z1 - t;
   const T = 0.2;
+  c.setRegion('office', { kind: 'shell', building: 'office' });
   // 地板：磁磚底 + 各房間地毯
   c.mm('tile', '#cfcab8', x0, -0.1, z0, x1, 0.03, z1);
   c.mm('carpet', '#7a2f3a', ix0, 0.03, iz0, -13 - T / 2, 0.045, 35 - T / 2);          // R1 經理室
@@ -68,6 +69,7 @@ export function buildOffice(c: Ctx): void {
   c.vis('metal', '#a33a2e', -18.2, 3.0, z1 + 0.02, -13.8, 3.4, z1 + 1.2);
 
   // ---- 家具 ----
+  c.setRegion('office_int', { kind: 'interior', building: 'office' });
   desk(c, -19, 30); chair(c, -19, 31.5, '-z'); desk(c, -20.8, 32.8, 1.2, 0.6, true);
   desk(c, -11, 30); chair(c, -11, 31.5, '-z'); desk(c, -6.6, 33.2, 1.6, 0.8); chair(c, -6.6, 32.0, '+z');
   desk(c, 0.5, 30.2, 2.0, 1.0); chair(c, 0.5, 31.8, '-z');
@@ -103,6 +105,7 @@ export function buildOffice(c: Ctx): void {
 export function buildGuardHouse(c: Ctx): void {
   const { x0, x1, z0, z1, h, t } = GUARD;
   const wc = '#a9aea0';
+  c.setRegion('central', { kind: 'outdoor' });
   c.mm('tile', '#b9b6a4', x0, -0.1, z0, x1, 0.03, z1);
   c.wall('x', z0 + t / 2, t, x0, x1, 0, h, [], 'concrete', wc);
   c.wall('x', z1 - t / 2, t, x0, x1, 0, h, [], 'concrete', wc);
@@ -125,6 +128,7 @@ export function buildGuardHouse(c: Ctx): void {
 }
 
 export function buildGasStation(c: Ctx): void {
+  c.setRegion('central', { kind: 'outdoor' });
   // 加油站雨棚
   const posts = [[59, 11], [75, 11], [59, 19], [75, 19]];
   for (const [x, z] of posts) c.mm('metal', '#d8d4c4', x - 0.3, 0, z - 0.3, x + 0.3, 5, z + 0.3);

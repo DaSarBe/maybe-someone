@@ -1,11 +1,12 @@
 import { WH } from './layout';
-import { Ctx, climb } from './util';
+import { Ctx, climb, flight } from './util';
 
 /** 倉庫：大跨距鐵皮廠房，貨架、棧板、堆高機，北側二樓鐵網走道 */
 export function buildWarehouse(c: Ctx): void {
   const { x0, x1, z0, z1, wallH: H, t, mezzY } = WH;
   const wc = '#6f8393', rust = '#7a6a58';
   const ix0 = x0 + t, ix1 = x1 - t, iz0 = z0 + t, iz1 = z1 - t;
+  c.setRegion('warehouse', { kind: 'shell', building: 'warehouse' });
 
   // 外牆：四面各開門
   c.wall('x', z0 + t / 2, t, x0, x1, 0, H, [{ a: 14, b: 16, h: 2.6 }], 'metal', wc);
@@ -50,6 +51,63 @@ export function buildWarehouse(c: Ctx): void {
   c.col(8.6, 0, -35.55, 14.7, 2.4, -35.45);
   c.col(37.3, 0, -35.55, 43.4, 2.4, -35.45);
 
+  // ---- 三樓：吊車維修走道（北側走道 + 橫跨倉庫的天橋 + 南側走道）----
+  const T3 = WH.topY;
+  const GRATE = '#7a8790';
+  c.mm('metal_grate', GRATE, ix0, T3 - 0.2, iz0, ix1, T3, -41.4);                       // 北側維修走道（沿吊車軌道）
+  c.mm('metal_grate', GRATE, 29.6, T3 - 0.2, -41.4, 32.0, T3, -15.6);                      // 天橋
+  c.mm('metal_grate', GRATE, ix0, T3 - 0.2, -15.6, ix1, T3, iz1);                        // 南側維修走道
+  for (const x of [9, 17, 25, 33, 41]) {
+    c.mm('metal', '#44505a', x, mezzY, -41.9, x + 0.3, T3 - 0.2, -41.6);                  // 走道的立柱（站在二樓上）
+  }
+  for (const z of [-33, -24]) c.mm('metal', '#44505a', 30.65, 0, z - 0.15, 30.95, T3 - 0.2, z + 0.15); // 天橋的支柱
+  // 護欄：北走道南緣、天橋兩側、南走道北緣
+  const rail = (xa: number, za: number, xb: number, zb: number): void => {
+    c.col(xa, T3, za, xb, T3 + 1.4, zb);
+    c.vis('metal', '#c9a227', xa, T3 + 1.0, za, xb, T3 + 1.1, zb);
+    c.vis('metal', '#c9a227', xa, T3 + 0.45, za, xb, T3 + 0.52, zb);
+  };
+  rail(ix0, -41.45, 25.9, -41.35); rail(28.6, -41.45, 29.5, -41.35); rail(32.1, -41.45, 41.2, -41.35);
+  rail(25.7, -39.75, 28.65, -39.65); rail(28.55, -41.4, 28.65, -39.7);
+  rail(29.5, -41.4, 29.6, -15.6); rail(32.0, -41.4, 32.1, -15.6);
+  rail(ix0, -15.65, 29.5, -15.55); rail(32.1, -15.65, ix1, -15.55);
+  // 二樓 → 三樓樓梯（鐵網，貼著北牆下方；頂端平台接北側走道）
+  const g3 = flight(c, { axis: 'x', dir: 1, u: 20, v: -40.5, width: 1.6, y: mezzY, H: T3 - mezzY, s: 'metal_grate', color: '#8a959c', alt: '#7d878e' });
+  c.mm('metal_grate', '#7d878e', 25.7, T3 - 0.3, -41.4, 28.6, T3, -39.7);
+  for (const p of g3.pts) c.hint(p.x, p.y, p.z);
+  c.hint(27.2, T3, -40.6); c.hint(27.2, T3, -42.4); c.hint(22.0, mezzY, -38.8); c.hint(19.0, mezzY, -42.4);
+  c.hint(16.0, mezzY, -38.3); c.hint(36.0, mezzY, -38.3); c.hint(12.0, mezzY, -38.6); c.hint(40.0, mezzY, -38.6); c.hint(28.0, mezzY, -38.6);
+  // 三樓導航點：北走道、天橋、南走道
+  for (const x of [9.5, 14, 18, 22, 26, 30, 34, 38, 42]) c.hint(x, T3, -42.5);
+  for (let z = -40; z <= -16; z += 3) c.hint(30.8, T3, z);
+  for (const x of [9.5, 14, 18, 22, 26, 30.8, 34, 38, 42, 44.4]) c.hint(x, T3, -14.1);
+  // 吊車軌道（視覺）：兩條沿 x 的行走梁、橫跨的橋架與吊鉤
+  const crane = '#c9a227';
+  c.vis('metal', '#3d5a7a', ix0, T3 + 2.2, -43.6, ix1, T3 + 2.7, -43.2);
+  c.vis('metal', '#3d5a7a', ix0, T3 + 2.2, -12.8, ix1, T3 + 2.7, -12.4);
+  c.vis('metal', crane, 15, T3 + 2.4, -43.4, 17.4, T3 + 3.1, -12.6);
+  c.vis('metal', '#3a3d3f', 15.6, T3 + 1.6, -30, 16.8, T3 + 2.4, -28.6);
+  c.vis('metal', '#3a3d3f', 16.15, T3 - 1.4, -29.4, 16.25, T3 + 1.6, -29.2);
+  c.vis('metal', crane, 15.7, T3 - 2.2, -29.8, 16.7, T3 - 1.4, -28.8);
+  // 吊車駕駛室（北走道東端）：門開在西側
+  const cab = { x0: 41.2, x1: ix1, z0: iz0, z1: -39.6 };
+  c.mm('metal_grate', GRATE, cab.x0, T3 - 0.2, -41.4, cab.x1, T3, cab.z1);
+  c.wall('z', cab.x0 + 0.1, 0.2, cab.z0, cab.z1, T3, T3 + 2.7, [{ a: -43.0, b: -41.8, h: 2.2 }], 'metal', '#6f7e8a');
+  c.wall('x', cab.z1 - 0.1, 0.2, cab.x0, cab.x1, T3, T3 + 2.7, [], 'metal', '#6f7e8a');
+  c.mm('metal', '#6f7e8a', cab.x0, T3 + 2.7, cab.z0, cab.x1 + 0.1, T3 + 2.9, cab.z1);
+  c.vis('metal', '#6ab0c9', cab.x0 + 0.6, T3 + 1.0, cab.z1 - 0.2, cab.x1 - 0.5, T3 + 2.2, cab.z1 - 0.1);
+  c.mm('wood', '#6b4c2e', 43.2, T3, -43.2, 45.2, T3 + 0.9, -42.2);                         // 操作台
+  c.mm('metal', '#2a2f33', 43.6, T3 + 0.9, -42.9, 44.6, T3 + 1.3, -42.5);
+  c.hint(42.4, T3, -41.0); c.hint(43.8, T3, -40.6); c.hint(40.4, T3, -42.4);
+  c.zone('indoor_small', 'crane_cab', cab.x0 + 0.2, T3 - 0.3, cab.z0, cab.x1, T3 + 2.7, cab.z1 - 0.2);
+  c.sign({ text: '吊車作業區 注意高空', x: 18, y: T3 + 1.6, z: iz0 + 0.02, yaw: 0, w: 4.4, h: 0.8, bg: '#c9a227', fg: '#222', font: 0.75 });
+  // 屋頂大招牌的支架
+  c.mm('metal', '#444', 22, H + 0.4, -28.2, 22.5, H + 3.2, -27.8);
+  c.mm('metal', '#444', 33.5, H + 0.4, -28.2, 34, H + 3.2, -27.8);
+  c.zone('indoor_large', 'warehouse_mezz', ix0, mezzY - 0.2, iz0, ix1, T3 - 0.3, iz1);
+  c.zone('indoor_large', 'warehouse_catwalk', ix0, T3 - 0.3, iz0, ix1, H, iz1);
+
+  c.setRegion('warehouse_int', { kind: 'interior', building: 'warehouse' });
   // ---- 貨架（實心碰撞 + 視覺貨品）----
   const rack = (rx0: number, rz0: number, rx1: number, rz1: number): void => {
     c.mm('metal', '#3e5a7a', rx0, 0, rz0, rx1, 3.2, rz1);
@@ -96,8 +154,6 @@ export function buildWarehouse(c: Ctx): void {
   c.sign({ text: '禁止吸菸', x: ix1 - 0.02, y: 2.6, z: -35, yaw: -Math.PI / 2, w: 3, h: 1, bg: '#b3261e', fg: '#ffffff', font: 0.9 });
   c.sign({ text: '一號倉庫', x: 17, y: 7.0, z: z1 - t - 0.03, yaw: Math.PI, w: 5, h: 1.1, bg: '#222', fg: '#f2d64a', font: 0.85 });
   // 屋頂大招牌（遠處的地標）
-  c.mm('metal', '#444', 22, H + 0.4, -28.2, 22.5, H + 3.2, -27.8);
-  c.mm('metal', '#444', 33.5, H + 0.4, -28.2, 34, H + 3.2, -27.8);
   c.sign({ text: '海順海運', x: 28, y: H + 2.2, z: -27.78, yaw: 0, w: 12, h: 3.6, bg: '#1d3b5e', fg: '#f4f0dc', font: 0.85 });
   c.sign({ text: '海順海運', x: 28, y: H + 2.2, z: -28.22, yaw: Math.PI, w: 12, h: 3.6, bg: '#1d3b5e', fg: '#f4f0dc', font: 0.85 });
 

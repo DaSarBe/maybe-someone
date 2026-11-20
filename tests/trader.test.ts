@@ -102,16 +102,16 @@ describe('EconomyService trader', () => {
 });
 
 describe('raid duration per era', () => {
-  it('harbor is 12 minutes base, test map 5, stabilizer adds on top', () => {
-    expect(ERAS[0].baseDuration).toBe(720);
+  it('harbor is 15 minutes base, test map 5, stabilizer adds on top', () => {
+    expect(ERAS[0].baseDuration).toBe(900);
     const { eco } = makeEconomy();
-    expect(eco.raidDurationSec('harbor_1990')).toBe(720);
+    expect(eco.raidDurationSec('harbor_1990')).toBe(900);
     const r = eco.startRaid('harbor_1990', { testMap: true });
     expect(r.ok && r.duration).toBe(TEST_MAP_DURATION);
     const e2 = makeEconomy().eco;
     (e2 as any).p.credits = 99999;
     e2.upgrade('stabilizer');
-    expect(e2.raidDurationSec('harbor_1990')).toBe(765);
+    expect(e2.raidDurationSec('harbor_1990')).toBe(945);
   });
 });
 

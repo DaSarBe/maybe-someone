@@ -101,7 +101,28 @@ export function edgePassable(oct: Octree, a: P3, b: P3): boolean {
   return Math.abs(y - b.y) < 0.3;
 }
 
-export interface NavResult { nodes: P3[]; edges: [number, number][] }
+/** 除錯用：edgePassable 失敗時回傳第一個失敗取樣點與原因（成功回傳 null） */
+export function edgeFailure(oct: Octree, a: P3, b: P3): string | null {
+  const dx = b.x - a.x, dz = b.z - a.z;
+  const len = Math.hypot(dx, dz);
+  const n = Math.max(1, Math.ceil(len / SAMPLE));
+  let y = a.y;
+  for (let i = 1; i <= n; i++) {
+    const t = i / n;
+    const x = a.x + dx * t, z = a.z + dz * t;
+    const g = groundBelow(oct, x, z, y + STEP_H + 0.05);
+    const at = `at ${x.toFixed(2)},${y.toFixed(2)},${z.toFixed(2)}`;
+    if (!g) return `no ground ${at}`;
+    if (g.ny < WALKABLE_NY) return `steep ${at} ny=${g.ny.toFixed(2)}`;
+    if (g.y < y - 0.6) return `drop ${at} to ${g.y.toFixed(2)}`;
+    if (g.y > y + STEP_H) return `step up ${at} to ${g.y.toFixed(2)}`;
+    y = g.y;
+    if (!standClear(oct, x, y, z)) return `blocked at ${x.toFixed(2)},${y.toFixed(2)},${z.toFixed(2)}`;
+  }
+  return Math.abs(y - b.y) < 0.3 ? null : `end height ${y.toFixed(2)} vs ${b.y.toFixed(2)}`;
+}
+
+export interface NavResult { nodes: P3[]; edges: [number, number][]; /** 無法站立而被捨棄的強制點 */ rejected?: P3[] }
 
 /**
  * 產生導航圖：2m 網格取樣所有可站立地面（含多層），再用最小間距挑出節點，
@@ -137,9 +158,10 @@ export function generateNav(
   };
 
   // 強制點：以其標示的高度為準（snap 到最近的可站立面）
+  const rejected: P3[] = [];
   for (const f of forced) {
     const y = surfaceHeightAt(oct, f, 0.25);
-    if (y === null || !standClear(oct, f.x, y, f.z, 0.36)) { console.warn(`[nav] forced point is not standable: ${f.x},${f.y},${f.z}`); continue; }
+    if (y === null || !standClear(oct, f.x, y, f.z, 0.36)) { rejected.push(f); continue; }
     if (!near({ x: f.x, y, z: f.z }, 0.8)) add({ x: f.x, y, z: f.z });
   }
   // 網格候選
@@ -184,7 +206,8 @@ export function generateNav(
     deg[i]++; deg[j]++;
   }
   bridgeComponents(oct, nodes, edges, 16);
-  return opts.prune === false ? { nodes, edges } : pruneToMain(nodes, edges, 0);
+  const res = opts.prune === false ? { nodes, edges } : pruneToMain(nodes, edges, 0);
+  return { ...res, rejected };
 }
 
 /** 找連通元件；保留包含節點 0（第一個抵達點）的元件，重新編號 */
