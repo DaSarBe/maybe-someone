@@ -17,8 +17,21 @@ const ENEMY_COLOR = { guard: 0x4aa3ff, thug: 0xff9a2e, rival_agent: 0xff3b3b } a
  *  - 走路模式：WASD / 空白鍵 / C，和 Raid 相同的玩家控制器
  *  - F：切換飛行模式（空白鍵上升、C 下降、Shift 加速）
  *  - G：切換除錯標記（導航圖、搜刮點、敵人與巡邏、撤離點、抵達點、商人、回音區）
- *  - ?fly=1 以飛行模式開始；?markers=0 預設隱藏標記
+ *  - 1～6：樓層切換的俯視模式（只顯示某個高度範圍，方便檢查各樓層；0 或再按同一個數字回到一般視角）
+ *      1 = B2（停車場最下層）、2 = B1 與隧道、3 = 地面層、4 = 二樓高度、5 = 三樓高度、6 = 四樓以上與頂樓
+ *  - ?fly=1 以飛行模式開始；?markers=0 預設隱藏標記；?floor=3 直接進入某個樓層俯視
  */
+
+/** 樓層俯視：各按鍵對應的高度範圍 [最低, 最高]（超出的幾何會被全域裁切平面切掉，除錯標記也一起被切） */
+export const FLOOR_BANDS: Record<number, { name: string; y0: number; y1: number }> = {
+  1: { name: 'B2 停車場', y0: -8.5, y1: -3.95 },
+  2: { name: 'B1 停車場・隧道', y0: -4.0, y1: -0.9 },
+  3: { name: '地面層', y0: -1.0, y1: 2.6 },
+  4: { name: '2F 高度（大樓 2F・倉庫二樓・船甲板）', y0: 3.0, y1: 6.9 },
+  5: { name: '3F 高度（大樓 3F・倉庫三樓）', y0: 6.9, y1: 10.9 },
+  6: { name: '4F 以上與頂樓', y0: 10.9, y1: 30 },
+};
+
 export class HarborPreviewScene implements Scene {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(75, 1, 0.05, 220);
@@ -44,10 +57,13 @@ export class HarborPreviewScene implements Scene {
   private fog = true;
   private tmpMove = new THREE.Vector2();
   private tmpLook = new THREE.Vector2();
+  /** 目前的樓層俯視模式（0 = 一般） */
+  floor = 0;
   private onKey = (e: KeyboardEvent): void => {
     if (e.repeat) return;
     if (e.code === 'KeyF') this.setFly(!this.fly);
     else if (e.code === 'KeyG') this.markers.visible = !this.markers.visible;
+    else if (/^Digit[0-6]$/.test(e.code)) { const n = Number(e.code.slice(5)); this.setFloor(n === this.floor ? 0 : n); }
   };
 
   constructor(private opts: { showHud?: boolean } = {}) {}
@@ -62,7 +78,7 @@ export class HarborPreviewScene implements Scene {
     if (touch) this.mc = new MobileControls(game.container, game.input, game.layout, game.controls);
     this.menu = new PauseMenu(game.container, game.input, game.audio, {
       touch, debug: game.debug, game,
-      hint: 'WASD 移動 ・ Shift 衝刺 ・ C 蹲下 ・ Space 跳躍 ・ F 飛行 ・ G 除錯標記|左側搖桿移動 ・ 右側拖曳轉視角',
+      hint: 'WASD 移動 ・ Shift 衝刺 ・ C 蹲下 ・ Space 跳躍 ・ F 飛行 ・ G 除錯標記 ・ 1～6 樓層俯視|左側搖桿移動 ・ 右側拖曳轉視角',
     });
     window.addEventListener('keydown', this.onKey);
 
@@ -85,11 +101,14 @@ export class HarborPreviewScene implements Scene {
       this.scene.add(this.markers);
       this.markers.visible = params.get('markers') !== '0';
       if (params.get('fly') === '1') { this.flyTo(0, 150, 60, 0, -1.1); this.setFly(true); }
+      const fl = Number(params.get('floor') ?? 0);
+      if (fl >= 1 && fl <= 6) this.setFloor(fl);
     });
   }
 
   exit(): void {
     window.removeEventListener('keydown', this.onKey);
+    this.game.renderer.clippingPlanes = [];
     this.hud?.dispose();
     this.menu?.dispose();
     this.mc?.dispose();
@@ -131,6 +150,28 @@ export class HarborPreviewScene implements Scene {
     if (sky) sky.visible = !on;
     this.camera.far = on ? 600 : 220;
     this.camera.updateProjectionMatrix();
+  }
+
+  /**
+   * 樓層俯視：n = 1～6 只顯示該高度範圍（全域裁切平面）、關掉分區可見性、相機拉到空中垂直往下看；0 = 回到一般視角。
+   */
+  setFloor(n: number): void {
+    const vis = (this.map as (RaidMap & { visibility?: { locked: boolean; showAll(): void } }) | null)?.visibility;
+    this.floor = n;
+    const renderer = this.game.renderer;
+    if (n === 0) {
+      renderer.clippingPlanes = [];
+      if (vis) vis.locked = false;
+      this.setOverview(false);
+      this.setFly(false);
+      return;
+    }
+    const b = FLOOR_BANDS[n];
+    renderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, -1, 0), b.y1), new THREE.Plane(new THREE.Vector3(0, 1, 0), -b.y0)];
+    if (vis) { vis.locked = true; vis.showAll(); }
+    this.setOverview(true);
+    this.setFly(true);
+    this.flyTo(0, 172, 42, 0, -Math.PI / 2);
   }
 
   teleport(x: number, y: number, z: number, yaw = 0): void {
@@ -263,7 +304,7 @@ export class HarborPreviewScene implements Scene {
         moveState: this.fly ? 'fly' : !s.grounded ? 'air' : s.crouching ? (s.moving ? 'crouch-walk' : 'crouch') : s.sprinting && s.moving ? 'sprint' : s.moving ? 'walk' : 'idle',
         position: `${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}`,
         sound: this.game.audio.lastSound,
-        audioState: `${this.game.audio.state} calls=${this.stats.calls} tris=${(this.stats.triangles / 1000).toFixed(0)}k`,
+        audioState: `${this.game.audio.state} calls=${this.stats.calls} tris=${(this.stats.triangles / 1000).toFixed(0)}k${this.floor ? ` ・樓層 ${this.floor}: ${FLOOR_BANDS[this.floor].name}` : ''}`,
       });
     }
     this.game.renderer.render(this.scene, this.camera);

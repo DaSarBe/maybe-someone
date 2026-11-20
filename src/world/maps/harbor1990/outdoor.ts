@@ -35,6 +35,7 @@ function tree(c: Ctx, x: number, z: number, s = 1): void {
 }
 
 export function buildOutdoor(c: Ctx): void {
+  c.setRegion('central', { kind: 'outdoor' });
   // ---- 卡車停車場（碎石地）----
   truck(c, 58, -46.5, 'x', '#7b8a96', '#9a9484');
   truck(c, 66, -38, 'z', '#8f6a4d', '#6d7a72');
@@ -107,9 +108,9 @@ export function buildOutdoor(c: Ctx): void {
   // ---- 大門 ----
   c.mm('concrete', '#8d8a80', -0.7, 0, 90.6, 0.2, 5.2, 92);
   c.mm('concrete', '#8d8a80', 9.8, 0, 90.6, 10.7, 5.2, 92);
-  c.vis('metal', '#2f5a3a', 0.2, 0.2, 91.4, 5.0, 3.6, 91.55);
-  c.vis('metal', '#2f5a3a', 5.0, 0.2, 91.4, 9.8, 3.6, 91.55);
-  for (let x = 0.5; x < 9.8; x += 0.5) c.vis('metal', '#1d3a26', x, 0.2, 91.35, x + 0.07, 3.6, 91.45);
+  // 內側舊大門：門扇推開貼在門柱邊，上緣門楣保留
+  c.vis('metal', '#2f5a3a', 0.2, 0.2, 90.7, 0.35, 3.6, 3.0 + 90.7);
+  c.vis('metal', '#2f5a3a', 9.65, 0.2, 90.7, 9.8, 3.6, 3.0 + 90.7);
   c.vis('metal', '#2f5a3a', 0.2, 3.6, 91.4, 9.8, 4.1, 91.55);
   c.sign({ text: '海順海運 港區出入口', x: 5, y: 4.9, z: 91.3, yaw: Math.PI, w: 9, h: 1.0, bg: '#173a63', fg: '#f4f0dc', font: 0.8 });
   c.sign({ text: '閒雜人等 禁止入內', x: 5, y: 4.9, z: 91.99, yaw: 0, w: 9, h: 0.9, bg: '#b3261e', fg: '#ffffff', font: 0.8 });

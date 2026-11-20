@@ -146,6 +146,19 @@ export class MapBuilder {
     return this;
   }
 
+  /**
+   * 直立圓柱（水塔、油槽、柱子）：碰撞與渲染都是圓柱本身。cy0 是底部高度，capped = false 時頂面開放。
+   * 新增於 M7，不影響既有函式。
+   */
+  cylinder(
+    surface: Surface, color: THREE.ColorRepresentation,
+    cx: number, cy0: number, cz: number, radius: number, height: number, segments = 14,
+  ): this {
+    const geo = new THREE.CylinderGeometry(radius, radius, height, segments);
+    geo.translate(cx, cy0 + height / 2, cz);
+    return this.addGeometry(surface, color, geo);
+  }
+
   /** 依法線主軸把世界座標投影成 UV */
   private projectUv(geo: THREE.BufferGeometry, tile: number): void {
     const pos = geo.getAttribute('position'), nor = geo.getAttribute('normal');

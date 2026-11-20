@@ -1,4 +1,4 @@
-import { GROUND_HOLES, LAND, POOL, TUNNEL, TUNNEL_ALCOVE_PIT, TUNNEL_PIT } from './layout';
+import { GROUND_HOLES, LAND, POOL, RAIL, TUNNEL, TUNNEL_ALCOVE_PIT, TUNNEL_PIT } from './layout';
 import { Ctx, subtractRects, type Rect } from './util';
 
 const R = (x0: number, z0: number, x1: number, z1: number): Rect => ({ x0, z0, x1, z1 });
@@ -12,15 +12,27 @@ export function buildTerrain(c: Ctx): void {
   const overlay = (s: Parameters<Ctx['ground']>[0], color: string, r: Rect): void =>
     c.ground(s, color, r, OVERLAY_TOP, 0.1, GROUND_HOLES);
 
-  overlay('sand', '#cbb88a', R(-92, -64, -66, -20));
+  overlay('sand', '#cbb88a', R(-130, -64, -66, -20));
   overlay('wood', '#9b7a55', R(-62, -64, 62, -50));
-  overlay('grass', '#4f7a43', R(-92, -20, -66, 92));
+  overlay('grass', '#4f7a43', R(-130, -20, -66, 166));
   overlay('grass', '#55803f', R(-66, 52, -30, 92));
   overlay('grass', '#5b8444', R(-30, 56, -2, 92));
   overlay('gravel', '#7a746c', R(52, -50, 92, -20));
   overlay('dirt', '#6f5236', R(52, -20, 92, 6));
   overlay('dirt', '#73563a', R(78, 6, 92, 92));
   overlay('dirt', '#6a4e33', R(-66, 4, -50, 30));
+  // ---- 擴大後的新區域 ----
+  overlay('gravel', '#756f66', R(92, -62, 130, -26));                 // 鐵道貨運站
+  overlay('dirt', '#6a4e33', R(92, -26, 130, 36));                    // 大樓周邊
+  overlay('tile', '#b9b6a4', R(94, 17, 130, 33));                     // 大樓前廣場
+  overlay('dirt', '#73563a', R(92, 36, 96, 100));
+  overlay('dirt', '#6f5236', R(92, 100, 130, 166));                   // 東南空地
+  overlay('gravel', '#7a746c', R(-14, 100, 42, 152));                 // 油槽區
+  overlay('dirt', '#73563a', R(42, 100, 92, 166));                    // 廢車場
+  overlay('grass', '#4d7541', R(-24, 152, 42, 166));
+  overlay('concrete', '#8c8e8c', R(-84, 104, -24, 148));              // 停車場地面（屋頂）
+  overlay('dirt', '#6a4e33', R(-130, 4, -92, 36));                    // 乾塢周圍
+  overlay('sand', '#c4b080', R(-130, 36, -92, 56));
   // 倉庫外的碎石小徑
   overlay('gravel', '#756f66', R(46, -44, 52, -12));
 
@@ -30,20 +42,30 @@ export function buildTerrain(c: Ctx): void {
 
   // ---- 圍牆（視覺 + 碰撞）與海岸隱形牆 ----
   const wallC = '#8a877d';
-  c.mm('concrete', wallC, -92, -1, -64, -91.6, 3.6, 92);
-  c.mm('concrete', wallC, 91.6, -1, -64, 92, 3.6, 92);
-  c.mm('concrete', wallC, -92, -1, 91.6, 92, 3.6, 92);
-  c.col(-92, 3.6, -64, -91.6, 8, 92);
-  c.col(91.6, 3.6, -64, 92, 8, 92);
-  c.col(-92, 3.6, 91.6, 92, 8, 92);
+  const { x0, x1, z1 } = LAND;
+  const gapA = RAIL.tracks[1] - 2, gapB = RAIL.tracks[1] + 2; // 東牆上的鐵道缺口
+  c.mm('concrete', wallC, x0, -1, -64, x0 + 0.4, 3.6, z1);
+  c.mm('concrete', wallC, x1 - 0.4, -1, -64, x1, 3.6, gapA);
+  c.mm('concrete', wallC, x1 - 0.4, -1, gapB, x1, 3.6, z1);
+  c.mm('concrete', wallC, x0, -1, z1 - 0.4, 4, 3.6, z1);
+  c.mm('concrete', wallC, 12, -1, z1 - 0.4, x1, 3.6, z1);
+  c.col(4, 0, z1 - 0.4, 12, 8, z1 + 0.4);   // 南門缺口（大門在 southyard.ts）
+  c.col(x0, 3.6, -64, x0 + 0.4, 8, z1);
+  c.col(x1 - 0.4, 3.6, -64, x1, 8, z1);
+  c.col(x0, 3.6, z1 - 0.4, 4, 8, z1); c.col(12, 3.6, z1 - 0.4, x1, 8, z1);
+  // 鐵道缺口：只擋住實體，鐵軌穿出去的樣子由視覺表現
+  c.col(x1 - 0.4, 0, gapA, x1 + 0.4, 8, gapB);
+  c.col(x1 - 0.4, 3.6, gapA, x1, 8, gapB);
   // 海邊：看不見的牆，擋住下水
-  c.col(-92, -3, -64.5, 92, 3.0, -64);
+  c.col(x0, -3, -64.5, x1, 3.0, -64);
   // 圍牆上緣的鐵絲網（純視覺）
-  c.vis('metal', '#3b3f40', -92, 3.6, -64, -91.9, 4.4, 92);
-  c.vis('metal', '#3b3f40', 91.9, 3.6, -64, 92, 4.4, 92);
-  c.vis('metal', '#3b3f40', -92, 3.6, 91.9, 92, 4.4, 92);
+  c.vis('metal', '#3b3f40', x0, 3.6, -64, x0 + 0.1, 4.4, z1);
+  c.vis('metal', '#3b3f40', x1 - 0.1, 3.6, -64, x1, 4.4, gapA);
+  c.vis('metal', '#3b3f40', x1 - 0.1, 3.6, gapB, x1, 4.4, z1);
+  c.vis('metal', '#3b3f40', x0, 3.6, z1 - 0.1, 4, 4.4, z1);
+  c.vis('metal', '#3b3f40', 12, 3.6, z1 - 0.1, x1, 4.4, z1);
 
-  buildTunnel(c);
+  c.within('tunnel', { kind: 'underground', building: 'tunnel' }, () => buildTunnel(c));
 }
 
 function buildTunnel(c: Ctx): void {
@@ -76,7 +98,9 @@ function buildTunnel(c: Ctx): void {
   // 側室
   c.mm('concrete', wc, alc.x0, T.floorY, alc.z0, alc.x0 + T.wall, 0, alc.z1 + T.wall);
   c.mm('concrete', wc, alc.x1 - T.wall, T.floorY, alc.z0, alc.x1, 0, alc.z1 + T.wall);
-  c.mm('concrete', wc, alc.x0, T.floorY, alc.z1, alc.x1, 0, alc.z1 + T.wall);
+  // 南牆留一個開口（x -53..-50）通往往南的服務隧道
+  c.mm('concrete', wc, alc.x0, T.floorY, alc.z1, -53, 0, alc.z1 + T.wall);
+  c.mm('concrete', wc, -50, T.floorY, alc.z1, alc.x1, 0, alc.z1 + T.wall);
   // 屋頂（上面是草地）
   c.mm('concrete', wc, T.x0, T.roofY, pit.z0, T.x1, -0.1, pit.z1);
   c.mm('grass', '#55803f', T.x0, -0.1, pit.z0, T.x1, 0, pit.z1);
