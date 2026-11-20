@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { WORN_WEIGHT_FACTOR } from '../src/items/Inventory';
 import { describe, expect, it } from 'vitest';
 import { buildCorpseLoot } from '../src/ai/CorpseLoot';
 import { tacticalVision, visionGain } from '../src/ai/Perception';
@@ -368,7 +369,7 @@ describe('mods follow the weapon', () => {
     const w0 = eco.carryInfo().weight;
     giveWeapon(eco, 'rifle', mods);
     const add = ITEMS.att_reddot.weight + ITEMS.att_suppressor.weight + ITEMS.att_grip.weight;
-    expect(eco.carryInfo().weight).toBeCloseTo(w0 + add, 5);
+    expect(eco.carryInfo().weight).toBeCloseTo(w0 + add * WORN_WEIGHT_FACTOR, 5);
   });
 
   it('death drops the weapon with its mods (value counted), the secure container keeps them', () => {

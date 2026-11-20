@@ -149,6 +149,11 @@
 .weight-label { display: flex; justify-content: space-between; }
 .weight.warn .bar i { background: #ffc94a; }
 .weight.bad .bar i { background: #ff4a4a; }
+.weight .bar { position: relative; overflow: visible; }
+.weight .bar i { max-width: 100%; }
+.weight .tick { position: absolute; top: -2px; bottom: -2px; width: 2px; background: rgba(255,255,255,.65); text-decoration: none; }
+.weight-tip { cursor: help; opacity: .7; margin-left: 2px; }
+.weight-note { color: #9fb6c8; }
 .weight.warn small { color: #ffc94a; } .weight.bad small { color: #ff7a7a; }
 
 /* ---- Detail ---- */

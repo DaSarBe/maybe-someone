@@ -120,6 +120,11 @@ public/assets/            models/ sounds/ sprites/ textures/ + CREDITS.md + mani
 
 - **地圖載入**：`maps/index.ts` 的 harbor_1990 用動態 import（獨立 chunk，不進主 bundle）；測試地圖用 `?scene=raid&map=test`（基礎 5 分鐘）。`RaidMap.ownsLighting` = true 時 RaidScene 不呼叫 `setupLighting`（光源、霧、天空在地圖 root 內）；`RaidMap.lightAt(pos)` 提供敵人感知用的亮度（harbor：室內外底值 + 點光源距離衰減）；`RaidMap.ambience` 設定地圖專屬環境音（浪聲定位、海鷗、遠方汽笛），由 `AudioManager.startMapAmbience` 執行。
 - **時空穩定度時間** = 時代基礎時間（`eras.ts baseDuration`，harbor_1990 = 12 分鐘）+ 穩定器升級加成（每級 +45 秒）；測試地圖 5 分鐘。
+- **負重**（`items/Inventory.ts`、`items/Profile.ts`）：
+  - **計重**：背包 / 口袋格子內的物品照原重量；**穿在身上的裝備**（主武器含配件、副武器含配件、護甲、頭盔、背包本身）只算一半（`WORN_WEIGHT_FACTOR = 0.5`，`equipmentWeight`）。保險袋不計重（維持原狀）。物品詳細資訊中，穿戴中的裝備顯示「計重 x.x kg（穿戴 ×0.5）」，負重數字旁的 ⓘ 提示「穿戴裝備以一半重量計算」。
+  - **上限** = 背包（或口袋）`maxWeight` + 升級「體能訓練」（`fitness`，5 級，每級 +3 kg，最多 +15；₵3,000 / 7,500 / 15,000 / 28,000 / 48,000）。
+  - **四段門檻**（負重比例 = 計重 / 上限；`weightSpeedFactor`、`canSprintAtWeight`）：0～70% 正常；70～100% 線性變慢，100% 前最低 ×0.8；100～125% 速度 ×0.6、不能衝刺（蹲跑也不行，因為蹲跑也走衝刺判定）；超過 125%（`HARD_WEIGHT_CAP = 1.25`）撿不起東西 / 搬不進來，沿用原本的拒絕與提示。
+  - **負重條**：滿格 = 125%，在 70% 與 100% 畫刻度；超過 70% 黃色、超過 100% 紅色。
 - **槍械模型**：`combat/WeaponModels.ts` 載入 Quaternius OBJ+MTL，MTL 全是同一個灰色，所以依材質名稱重新上色並烤進頂點色，合併成最多 2 個 mesh（前段 + 槍托，瞄準時隱藏槍托），平面法線。槍口座標是火光與曳光彈的起點。載入失敗退回方塊槍。
 - **音效**：`enemy` 類別在 p1 sprite；敵人的受傷 / 死亡 / 發現玩家喊叫走 `noise`（`hurt` / `death` / `alert`；alert 全場冷卻 4.5 秒、同一個敵人 15 秒）；`bulletFlyby`（敵人打偏且經過玩家 2m 內）、`playerHurt.armor`（護甲吸收 → `impacts.player_armor`）；`casing`（依地面材質變化）、`player_armor`、`bullet_flyby`、`shotgun_boom`、`shotgun_pump` 由 Synth 合成。衝鋒槍 = pistol_fire 加快 30% + 高頻擱架 +7dB；霰彈槍 = rifle_fire 降到 0.62 倍 + 合成低頻爆破層，開槍後 0.42 秒自動上膛（pump）。見 `AudioManager.SHOT_LAYERS`。
 

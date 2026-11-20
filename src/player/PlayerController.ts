@@ -93,7 +93,7 @@ export class PlayerController {
     this.camera.rotation.order = 'YXZ';
   }
 
-  /** 負重比例來源（EconomyService.getWeightRatio）：80% 開始變慢，100% 不能衝刺 */
+  /** 負重比例來源（EconomyService.getWeightRatio）：70% 開始變慢，100% 不能衝刺（含蹲跑） */
   setWeightProvider(fn: (() => number) | null): void {
     this.weightProvider = fn;
   }

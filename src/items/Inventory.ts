@@ -248,10 +248,22 @@ export function stackWeight(s: ItemStack): number {
   return (getItem(s.id)?.weight ?? 0) * s.qty + mods * s.qty;
 }
 
-/** 超過 80% 開始變慢；超過 100% 不能衝刺（供 PlayerController 使用） */
+/** 穿在身上的裝備（武器含配件、護甲、頭盔、背包）計入負重時的係數 */
+export const WORN_WEIGHT_FACTOR = 0.5;
+/** 負重比例門檻：超過 SLOW 開始逐漸變慢；到 FULL（100%）速度 ×FULL_SPEED、不能衝刺 */
+export const WEIGHT_SLOW_START = 0.7;
+export const WEIGHT_FULL = 1;
+const SPEED_AT_FULL = 0.8;
+const SPEED_OVERWEIGHT = 0.6;
+
+/**
+ * 負重速度係數：0~70% 正常；70~100% 線性降到 ×0.8；
+ * 100~125% 固定 ×0.6（且不能衝刺）。超過 125% 撿不起東西（HARD_WEIGHT_CAP）。
+ */
 export function weightSpeedFactor(ratio: number): number {
-  if (ratio <= 0.8) return 1;
-  if (ratio <= 1) return 1 - 0.25 * ((ratio - 0.8) / 0.2);
-  return Math.max(0.45, 0.75 - 1.2 * (ratio - 1));
+  if (ratio <= WEIGHT_SLOW_START) return 1;
+  if (ratio < WEIGHT_FULL) return 1 - (1 - SPEED_AT_FULL) * ((ratio - WEIGHT_SLOW_START) / (WEIGHT_FULL - WEIGHT_SLOW_START));
+  return SPEED_OVERWEIGHT;
 }
-export const canSprintAtWeight = (ratio: number): boolean => ratio < 1;
+/** 100% 以上不能衝刺（蹲跑一樣，因為蹲跑也走衝刺判定） */
+export const canSprintAtWeight = (ratio: number): boolean => ratio < WEIGHT_FULL;

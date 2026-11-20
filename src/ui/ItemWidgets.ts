@@ -5,7 +5,7 @@ import { helmetSummary } from '../data/helmet';
 import { CATEGORY_NAMES, RARITY_COLORS, RARITY_NAMES, getItem } from '../data/items';
 import { WEAPON_STATS } from '../data/weapons';
 import { CONTAINER_NAMES, type ContainerId, type Loc } from '../economy/EconomyService';
-import { stackWeight, type ItemStack } from '../items/Inventory';
+import { HARD_WEIGHT_CAP, WEIGHT_FULL, WEIGHT_SLOW_START, WORN_WEIGHT_FACTOR, stackWeight, type ItemStack } from '../items/Inventory';
 import { EQUIP_SLOTS, itemMaxDur, type EquipSlot } from '../items/Profile';
 import { btn, el, fmtCredits, fmtKg } from './dom';
 import type { Ui } from './Ui';
@@ -232,16 +232,32 @@ export function equipRow(ctx: InvCtx): HTMLElement {
 export function weightBar(ctx: InvCtx): HTMLElement {
   const info = ctx.eco.carryInfo();
   const box = el('div', 'weight');
-  const state = info.ratio >= 1 ? '超重：無法衝刺、移動很慢' : info.ratio > 0.8 ? '負重偏高：移動變慢' : '';
-  box.classList.toggle('warn', info.ratio > 0.8 && info.ratio < 1);
-  box.classList.toggle('bad', info.ratio >= 1);
+  const state = info.ratio >= WEIGHT_FULL ? '超重：無法衝刺、移動很慢' : info.ratio > WEIGHT_SLOW_START ? '負重偏高：移動變慢' : '';
+  box.classList.toggle('warn', info.ratio > WEIGHT_SLOW_START && info.ratio < WEIGHT_FULL);
+  box.classList.toggle('bad', info.ratio >= WEIGHT_FULL);
   const label = el('div', 'weight-label');
-  label.append(el('span', '', '負重'), el('b', '', `${fmtKg(info.weight)} / ${fmtKg(info.max)}`));
+  const tip = el('span', 'weight-tip', 'ⓘ');
+  tip.title = '穿戴裝備以一半重量計算';
+  tip.tabIndex = 0;
+  const note = el('small', 'weight-note', '穿戴裝備以一半重量計算');
+  note.hidden = true;
+  tip.addEventListener('click', () => { note.hidden = !note.hidden; });
+  const name = el('span', '', '負重 ');
+  name.appendChild(tip);
+  label.append(name, el('b', '', `${fmtKg(info.weight)} / ${fmtKg(info.max)}`));
   const bar = el('div', 'bar');
   const fill = el('i');
-  fill.style.width = `${Math.min(100, info.ratio * 100)}%`;
+  // 條的滿格 = 125%（可撿取的上限），70% 與 100% 畫刻度
+  const scale = HARD_WEIGHT_CAP;
+  fill.style.width = `${Math.min(100, (info.ratio / scale) * 100)}%`;
   bar.appendChild(fill);
-  box.append(label, bar);
+  for (const t of [WEIGHT_SLOW_START, WEIGHT_FULL]) {
+    const tick = el('u', 'tick');
+    tick.style.left = `${(t / scale) * 100}%`;
+    tick.title = `${Math.round(t * 100)}%`;
+    bar.appendChild(tick);
+  }
+  box.append(label, bar, note);
   if (state) box.appendChild(el('small', '', state));
   return box;
 }
@@ -256,7 +272,7 @@ export function bodyColumn(ctx: InvCtx): HTMLElement {
 }
 
 // ---------------------------------------------------------------- 詳細資訊
-export function itemInfo(ctx: InvCtx, stack: ItemStack, opts: { price?: { label: string; value: number; fmt?: (n: number) => string } | null } = {}): HTMLElement {
+export function itemInfo(ctx: InvCtx, stack: ItemStack, opts: { worn?: boolean; price?: { label: string; value: number; fmt?: (n: number) => string } | null } = {}): HTMLElement {
   const def = getItem(stack.id);
   const box = el('div', 'info');
   if (!def) return box;
@@ -273,7 +289,10 @@ export function itemInfo(ctx: InvCtx, stack: ItemStack, opts: { price?: { label:
 
   const rows: [string, string][] = [];
   const unitW = stackWeight({ ...stack, qty: 1 });
-  rows.push(['重量', `${fmtKg(unitW)}${stack.qty > 1 ? `（共 ${fmtKg(unitW * stack.qty)}）` : ''}${stack.mods ? '（含配件）' : ''}`]);
+  rows.push(opts.worn
+    ? ['重量', `${fmtKg(unitW)}${stack.mods ? '（含配件）' : ''}`]
+    : ['重量', `${fmtKg(unitW)}${stack.qty > 1 ? `（共 ${fmtKg(unitW * stack.qty)}）` : ''}${stack.mods ? '（含配件）' : ''}`]);
+  if (opts.worn) rows.push(['計重', `${fmtKg(unitW * WORN_WEIGHT_FACTOR)}（穿戴 ×${WORN_WEIGHT_FACTOR}）`]);
   const w0 = WEAPON_STATS[def.id];
   if (w0) {
     const ew = effectiveWeapon(def.id, stack.mods);
@@ -396,7 +415,7 @@ export function detailPane(
   if (special) { pane.appendChild(special); return pane; }
   const stack = ctx.stackOf(sel);
   if (!stack) return pane;
-  pane.appendChild(itemInfo(ctx, stack));
+  pane.appendChild(itemInfo(ctx, stack, { worn: sel.kind === 'equip' }));
   const actions = el('div', 'actions');
   if (stack.qty > 1) actions.appendChild(qtyStepper(ctx, stack.qty));
   if (sel.kind === 'slot') {

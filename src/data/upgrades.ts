@@ -1,4 +1,4 @@
-export type UpgradeId = 'stash' | 'secure' | 'safe' | 'stabilizer' | 'search';
+export type UpgradeId = 'stash' | 'secure' | 'safe' | 'stabilizer' | 'search' | 'fitness';
 
 export interface UpgradeDef {
   id: UpgradeId;
@@ -32,6 +32,10 @@ export const UPGRADES: UpgradeDef[] = [
   {
     id: 'search', name: '搜刮模組', desc: '縮短搜刮容器所需的時間。數值為時間倍率。', base: 1, unit: '倍', glyph: '🔍',
     levels: [{ cost: 2000, value: 0.85 }, { cost: 5500, value: 0.7 }, { cost: 12000, value: 0.58 }, { cost: 24000, value: 0.48 }],
+  },
+  {
+    id: 'fitness', name: '體能訓練', desc: '提高負重上限（穿在身上的裝備只算一半重量）。數值為額外增加的公斤數。', base: 0, unit: '公斤', glyph: '💪',
+    levels: [{ cost: 3000, value: 3 }, { cost: 7500, value: 6 }, { cost: 15000, value: 9 }, { cost: 28000, value: 12 }, { cost: 48000, value: 15 }],
   },
 ];
 

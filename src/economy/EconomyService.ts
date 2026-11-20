@@ -121,7 +121,7 @@ export class EconomyService {
   /** 唯讀的容器檢視（修改請走 EconomyService 的方法） */
   view(c: ContainerId): Inventory { return this.inv(this.p, c); }
 
-  /** 負重比例：給 PlayerController 用。0..；超過 0.8 開始變慢，1 以上不能衝刺 */
+  /** 負重比例：給 PlayerController 用。0..；超過 0.7 開始變慢，1 以上不能衝刺 */
   getWeightRatio(): number { return this.inv(this.p, 'carried').getWeightRatio(); }
 
   carryInfo(): { weight: number; max: number; ratio: number; used: number; slots: number } {

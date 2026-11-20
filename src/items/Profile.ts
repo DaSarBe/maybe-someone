@@ -6,7 +6,7 @@ import { WEAPON_STATS } from '../data/weapons';
 import { cleanReputation, corpStabilityBonus, initialReputation, isCorp, type CorpId, type FactionId, type Reputation } from '../data/factions';
 import { effectiveWeapon } from '../combat/WeaponMods';
 import { UPGRADES, type UpgradeId } from '../data/upgrades';
-import { stackWeight, type ItemStack, type Slot } from './Inventory';
+import { WORN_WEIGHT_FACTOR, stackWeight, type ItemStack, type Slot } from './Inventory';
 
 export const PROFILE_VERSION = 4;
 export const PROFILE_KEY = 'profile';
@@ -92,7 +92,7 @@ export function createDefaultProfile(): Profile {
     carried: [],
     secure: [],
     safe: [],
-    upgrades: { stash: 0, secure: 0, safe: 0, stabilizer: 0, search: 0 },
+    upgrades: { stash: 0, secure: 0, safe: 0, stabilizer: 0, search: 0, fitness: 0 },
     corp: null,
     reputation: initialReputation(null),
     stats: { raids: 0, extracts: 0, deaths: 0, extractedValue: 0, lostValue: 0 },
@@ -119,19 +119,24 @@ export const stabilizerBonus = (p: Pick<Profile, 'upgrades'> & { corp?: CorpId |
 export const raidDuration = (p: Pick<Profile, 'upgrades'> & { corp?: CorpId | null }, baseDuration = STABILIZER_BASE): number => baseDuration + stabilizerBonus(p);
 export const searchTimeScale = (p: Profile): number => upgradeValue(p, 'search');
 
-export function carriedSpec(p: Pick<Profile, 'equipment'>): { slots: number; maxWeight: number } {
+/** 體能訓練升級帶來的額外負重上限（kg） */
+export const carryBonus = (p: Pick<Profile, 'upgrades'>): number => upgradeValue(p, 'fitness');
+
+/** 目前的背包規格；maxWeight = 背包（或口袋）上限 + 體能訓練加成 */
+export function carriedSpec(p: Pick<Profile, 'equipment' | 'upgrades'>): { slots: number; maxWeight: number } {
   const bag = p.equipment.backpack;
-  return (bag && BACKPACK_STATS[bag.id]) || POCKETS;
+  const base = (bag && BACKPACK_STATS[bag.id]) || POCKETS;
+  return { slots: base.slots, maxWeight: base.maxWeight + carryBonus(p) };
 }
 
-/** 身上穿戴裝備的重量（算進負重） */
+/** 身上穿戴裝備的計重（穿戴中的裝備只算 WORN_WEIGHT_FACTOR 倍） */
 export function equipmentWeight(p: Pick<Profile, 'equipment'>): number {
   let w = 0;
   for (const s of EQUIP_SLOTS) {
     const e = p.equipment[s];
     if (e) w += stackWeight(e);
   }
-  return w;
+  return w * WORN_WEIGHT_FACTOR;
 }
 
 export function armorMaxDurability(id: string): number {

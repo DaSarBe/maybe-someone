@@ -68,13 +68,19 @@ describe('Inventory', () => {
     expect(inv.getWeightRatio()).toBeCloseTo(0.5);
   });
 
-  it('weight slows the player from 80% and stops sprinting at 100%', () => {
+  it('weight speed has four bands: normal <=70%, slowing to x0.8 at 100%, x0.6 (no sprint) to 125%', () => {
+    expect(weightSpeedFactor(0)).toBe(1);
     expect(weightSpeedFactor(0.5)).toBe(1);
-    expect(weightSpeedFactor(0.8)).toBe(1);
-    expect(weightSpeedFactor(0.9)).toBeLessThan(1);
-    expect(weightSpeedFactor(1.2)).toBeLessThan(weightSpeedFactor(1));
+    expect(weightSpeedFactor(0.7)).toBe(1);
+    expect(weightSpeedFactor(0.85)).toBeCloseTo(0.9);
+    expect(weightSpeedFactor(0.99)).toBeGreaterThan(0.8);
+    expect(weightSpeedFactor(0.99)).toBeLessThan(0.81);
+    expect(weightSpeedFactor(1)).toBe(0.6);
+    expect(weightSpeedFactor(1.1)).toBe(0.6);
+    expect(weightSpeedFactor(1.25)).toBe(0.6);
     expect(canSprintAtWeight(0.99)).toBe(true);
     expect(canSprintAtWeight(1)).toBe(false);
+    expect(canSprintAtWeight(1.1)).toBe(false);
   });
 
   it('remove spans multiple stacks and is all-or-nothing', () => {

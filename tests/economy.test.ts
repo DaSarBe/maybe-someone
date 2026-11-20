@@ -5,6 +5,7 @@ import { UPGRADES } from '../src/data/upgrades';
 import { WEAPON_STATS } from '../src/data/weapons';
 import { buyPrice, dailyFactor, sellPrice } from '../src/economy/Pricing';
 import { EconomyService } from '../src/economy/EconomyService';
+import { canSprintAtWeight, weightSpeedFactor, WORN_WEIGHT_FACTOR } from '../src/items/Inventory';
 import { PROFILE_KEY, PROFILE_VERSION, migrateProfile, createDefaultProfile } from '../src/items/Profile';
 import { MemorySave, NOON, giveCredits, makeEconomy } from './helpers';
 
@@ -195,6 +196,72 @@ describe('EconomyService: upgrades', () => {
     (eco as unknown as { p: { credits: number } }).p.credits = 100000;
     eco.upgrade('stabilizer');
     expect(eco.raidDurationSec()).toBe(345);
+  });
+});
+
+describe('weight: worn gear counts half, fitness upgrade', () => {
+  const setup = (equip: Record<string, unknown>) => {
+    const { eco } = makeEconomy();
+    const p = (eco as unknown as { p: { equipment: Record<string, unknown>; carried: unknown[] } }).p;
+    Object.assign(p.equipment, equip);
+    p.carried.length = 0;
+    return { eco, p };
+  };
+  it('worn weapons (with mods), armor, helmet and backpack count x0.5', () => {
+    const mods = { sight: 'att_reddot', muzzle: 'att_suppressor', grip: 'att_grip' };
+    const { eco, p } = setup({ primary: { id: 'rifle', qty: 1, mods }, armor: { id: 'armor_3', qty: 1 }, helmet: { id: 'helmet_3', qty: 1 } });
+    const full = ['rifle', 'att_reddot', 'att_suppressor', 'att_grip', 'pistol', 'armor_3', 'helmet_3', 'bag_small'].reduce((n, id) => n + ITEMS[id].weight, 0);
+    expect(WORN_WEIGHT_FACTOR).toBe(0.5);
+    expect(eco.carryInfo().weight).toBeCloseTo(full / 2, 5);
+    // items in the bag keep full weight
+    p.carried.push({ id: 'rifle', qty: 1 });
+    expect(eco.carryInfo().weight).toBeCloseTo(full / 2 + ITEMS.rifle.weight, 5);
+  });
+  it('sample loadout (small bag, rifle + 3 mods, pistol, armor III, helmet III, ~1.5kg supplies) is ~50% and sprintable', () => {
+    const mods = { sight: 'att_reddot', muzzle: 'att_suppressor', grip: 'att_grip' };
+    const { eco, p } = setup({ primary: { id: 'rifle', qty: 1, mods }, armor: { id: 'armor_3', qty: 1 }, helmet: { id: 'helmet_3', qty: 1 } });
+    p.carried.push({ id: 'ammo_rifle', qty: 30 }, { id: 'ammo_pistol', qty: 30 }, { id: 'bandage', qty: 3 }); // 0.9 + 0.6 + 0.3 = 1.8
+    const r = eco.getWeightRatio();
+    expect(r).toBeGreaterThan(0.45);
+    expect(r).toBeLessThan(0.6);
+    expect(weightSpeedFactor(r)).toBe(1);
+    expect(canSprintAtWeight(r)).toBe(true);
+  });
+  it('fitness upgrade adds 3 kg per level (max +15) to the carry limit', () => {
+    const { eco } = makeEconomy();
+    giveCredits(eco, 200000);
+    expect(eco.carryInfo().max).toBe(15);
+    const costs: number[] = [];
+    for (let i = 1; i <= 5; i++) {
+      costs.push(eco.upgradeCost('fitness')!);
+      expect(eco.upgrade('fitness')).toMatchObject({ ok: true, level: i });
+      expect(eco.carryInfo().max).toBe(15 + 3 * i);
+    }
+    expect(costs).toEqual([3000, 7500, 15000, 28000, 48000]);
+    expect(eco.upgrade('fitness')).toMatchObject({ ok: false, code: 'max_level' });
+    expect(eco.upgradeCost('fitness')).toBeNull();
+  });
+  it('fitness bonus also applies to pockets (no backpack)', () => {
+    const { eco } = makeEconomy();
+    (eco as unknown as { p: { equipment: { backpack: unknown } } }).p.equipment.backpack = null;
+    giveCredits(eco, 10000);
+    expect(eco.carryInfo().max).toBe(10);
+    eco.upgrade('fitness');
+    expect(eco.carryInfo().max).toBe(13);
+  });
+  it('refuses pickup above 125% and ratios between 100% and 125% stop sprinting', () => {
+    const { eco, p } = setup({ primary: null });
+    // small bag 15kg, limit 18.75kg; worn: pistol 1 + bag 0.8 -> 0.9
+    const inv = eco.view('carried');
+    p.carried.push({ id: 'rice_cooker', qty: 1 }, { id: 'rice_cooker', qty: 1 }, { id: 'rice_cooker', qty: 1 }, { id: 'rice_cooker', qty: 1 }, { id: 'rice_cooker', qty: 1 }); // 16kg
+    expect(inv.getWeightRatio()).toBeGreaterThan(0); // fresh view below
+    const r = eco.getWeightRatio();
+    expect(r).toBeGreaterThan(1);
+    expect(r).toBeLessThan(1.25);
+    expect(canSprintAtWeight(r)).toBe(false);
+    expect(weightSpeedFactor(r)).toBe(0.6);
+    expect(eco.view('carried').maxAddable('rice_cooker', 5)).toBeLessThanOrEqual(1);
+    expect(eco.view('carried').maxAddable('scrap_metal', 50)).toBeLessThan(50);
   });
 });
 
