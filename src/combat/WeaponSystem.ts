@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { GameBus } from '../core/EventBus';
+import type { NoiseEvent, NoiseKind } from '../data/noise';
 import type { Input } from '../core/Input';
 import { WEAPON_STATS } from '../data/weapons';
 import { BASE_FOV, WEAPON_HANDLING, type WeaponHandling } from '../data/weaponHandling';
@@ -18,6 +19,8 @@ const SLOTS: EquipSlot[] = ['primary', 'secondary'];
 const SLOT_LABEL = ['1', '2'];
 const SWITCH_TIME = 0.32;
 const DEG = Math.PI / 180;
+/** 換彈進度到多少時發出第 2、3 段聲音 */
+const RELOAD_STAGE_AT = [0.42, 0.84];
 
 /** 敵人命中判定的介面（由 EnemyManager 實作），讓武器系統不認識 AI 細節 */
 export interface TargetHit {
@@ -76,6 +79,8 @@ export class WeaponSystem {
   private recoilPending = 0;    // 待套用的後座（弧度），幾個畫面內平滑加上去
   private sinceShot = 1;
   private pumpT = 0;
+  /** 換彈已發出的階段（0 卸彈匣、1 插彈匣、2 拉槍機）；依進度分段發出聲音 */
+  private reloadStage = 0;
   private lastWritten: (number | null)[] = [null, null];
   private flushTimer = 0;
   private dirty = false;
@@ -162,6 +167,13 @@ export class WeaponSystem {
     this.fireBuffer = 0;
     this.d.health.cancelHeal();
     this.applyViewmodel();
+    this.noise('weapon_swap', { weaponId: this.slots[i]?.id });
+  }
+
+  /** 發出聲音事件（聲音在手 / 槍口高度；本機玩家的聲音非定位，AI 與其他玩家用同一張距離表） */
+  private noise(kind: NoiseKind, extra: Partial<NoiseEvent> = {}): void {
+    const p = this.d.camera.getWorldPosition(this.origin);
+    this.d.bus.emit('noise', { kind, position: { x: p.x, y: p.y, z: p.z }, source: 'player', ...extra });
   }
 
   private tryReload(): void {
@@ -169,7 +181,8 @@ export class WeaponSystem {
     if (!w || this.switching) return;
     if (w.startReload(this.ammoSrc)) {
       this.d.health.cancelHeal();
-      this.d.bus.emit('weaponAction', { weaponId: w.id, action: 'reload', position: this.d.camera.getWorldPosition(this.origin).clone() });
+      this.reloadStage = 0;
+      this.noise('reload', { weaponId: w.id, stage: 0 });
     }
   }
 
@@ -185,7 +198,7 @@ export class WeaponSystem {
     if (this.pumpT > 0) {
       this.pumpT -= dt;
       const cw = this.current;
-      if (this.pumpT <= 0 && cw && cw.stats.pellets > 1) this.d.bus.emit('weaponAction', { weaponId: cw.id, action: 'pump', position: camera.getWorldPosition(this.origin).clone() });
+      if (this.pumpT <= 0 && cw && cw.stats.pellets > 1) this.noise('pump', { weaponId: cw.id });
     }
 
     // 切換武器
@@ -195,6 +208,13 @@ export class WeaponSystem {
     if (input.consumePress('reload')) this.tryReload();
     if (input.consumePress('fire')) this.fireBuffer = 0.18;
 
+    const cur = this.current;
+    if (cur?.reloading) {
+      // 換彈分 3 段：卸彈匣（開始時）→ 插彈匣 → 拉槍機
+      const pr = cur.reloadProgress;
+      if (this.reloadStage < 1 && pr >= RELOAD_STAGE_AT[0]) { this.reloadStage = 1; this.noise('reload', { weaponId: cur.id, stage: 1 }); }
+      if (this.reloadStage < 2 && pr >= RELOAD_STAGE_AT[1]) { this.reloadStage = 2; this.noise('reload', { weaponId: cur.id, stage: 2 }); }
+    }
     for (const w of this.slots) {
       if (!w) continue;
       const got = w.update(dt, this.ammoSrc);
@@ -235,7 +255,7 @@ export class WeaponSystem {
           this.fireBuffer = 0;
           if (this.emptyClickT <= 0) {
             this.emptyClickT = 0.4;
-            this.d.bus.emit('weaponAction', { weaponId: w.id, action: 'dry_fire', position: camera.getWorldPosition(this.origin).clone() });
+            this.noise('dry_fire', { weaponId: w.id });
             this.tryReload(); // 彈匣空了還有備彈：自動換彈
           }
         }
@@ -289,7 +309,7 @@ export class WeaponSystem {
     this.shotsFired++;
     this.dirty = true;
 
-    bus.emit('shot', { weaponId: w.id, position: this.origin.clone(), direction: this.fwd.clone(), surface: this.d.player.surface });
+    this.noise('shot', { weaponId: w.id, direction: { x: this.fwd.x, y: this.fwd.y, z: this.fwd.z }, surface: this.d.player.surface });
     fx.muzzleFlash(this.muzzle.clone().addScaledVector(this.fwd, 0.15), 0.35);
     vm.kick(w.stats.recoil * (this.ads > 0.5 ? 0.7 : 1) + 0.25);
 

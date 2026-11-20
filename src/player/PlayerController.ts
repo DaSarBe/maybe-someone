@@ -5,6 +5,7 @@ import type { Input } from '../core/Input';
 import type { GameBus, StepIntensity } from '../core/EventBus';
 import { getSurfaceAt, type Surface, DEFAULT_SURFACE } from '../world/Surface';
 import { canSprintAtWeight, weightSpeedFactor } from '../items/Inventory';
+import { stepKind } from '../data/noise';
 
 // ---- 參數（公尺 / 秒）----
 const RADIUS = 0.35;
@@ -15,6 +16,7 @@ const EYE_CROUCH = 0.88;
 const WALK_SPEED = 4.0;
 const SPRINT_SPEED = 7.0;
 const CROUCH_SPEED = 1.9;
+const CROUCH_RUN_SPEED = 2.8; // 蹲跑：介於蹲走（1.9）與走路（4.0）之間
 const GRAVITY = 22;
 const JUMP_V = 6.8;
 const STEP_MIN = 0.05;      // 小於此高度的門檻/接縫不算台階，球體直接滾過去
@@ -24,11 +26,13 @@ const STEP_SMOOTH_TAU = 0.1;   // 上台階 / 貼地下階的鏡頭高度差，�
 const STEP_GRACE = 0.3;        // 剛上台階的最長寬限（秒）：重心越過邊緣、腳下偵測到踏面就會提早結束
 const SNAP_SMOOTH_MIN = 0.04;  // 貼地下降超過此高度才記入鏡頭平滑（避免斜坡上持續落後）
 const WALKABLE_NY = 0.7;    // 法線 y 大於此值視為可站立的地面
-const STRIDE: Record<StepIntensity, number> = { sprint: 1.7, walk: 2.0, crouch: 2.6 };
+const STRIDE: Record<StepIntensity, number> = { sprint: 1.7, walk: 2.0, crouch_run: 2.2, crouch: 2.6 };
 
 export interface PlayerState {
   grounded: boolean;
   crouching: boolean;
+  /** 蹲下時按衝刺：蹲跑（比蹲走快、發出 8m 的腳步聲） */
+  crouchRunning: boolean;
   sprinting: boolean;
   moving: boolean;
   speed: number;
@@ -36,7 +40,7 @@ export interface PlayerState {
 
 export class PlayerController {
   readonly camera: THREE.PerspectiveCamera;
-  readonly state: PlayerState = { grounded: false, crouching: false, sprinting: false, moving: false, speed: 0 };
+  readonly state: PlayerState = { grounded: false, crouching: false, crouchRunning: false, sprinting: false, moving: false, speed: 0 };
   /** 外部系統（戰鬥、治療）的移動速度倍率；PlayerController 不認識武器，只看這個倍率 */
   speedScale = 1;
   /** 外部系統禁止衝刺（換彈、瞄準、治療中） */
@@ -137,6 +141,7 @@ export class PlayerController {
     this.yaw = yaw;
     this.pitch = 0;
     this.state.crouching = false;
+    this.state.crouchRunning = false;
     this.eye = EYE_STAND;
     this.airTime = 0;
     this.stepOffset = 0;
@@ -172,8 +177,10 @@ export class PlayerController {
       this.weightTimer = 0.25;
       this.weightRatio = this.weightProvider ? this.weightProvider() : 0;
     }
-    st.sprinting = input.isDown('sprint') && !st.crouching && !this.sprintBlocked && mv.y > 0.3 && canSprintAtWeight(this.weightRatio);
-    const maxSpeed = (st.crouching ? CROUCH_SPEED : st.sprinting ? SPRINT_SPEED : WALK_SPEED) * weightSpeedFactor(this.weightRatio) * this.speedScale;
+    const wantRun = input.isDown('sprint') && !this.sprintBlocked && mv.y > 0.3 && canSprintAtWeight(this.weightRatio);
+    st.sprinting = wantRun && !st.crouching;
+    st.crouchRunning = wantRun && st.crouching;
+    const maxSpeed = (st.crouching ? (st.crouchRunning ? CROUCH_RUN_SPEED : CROUCH_SPEED) : st.sprinting ? SPRINT_SPEED : WALK_SPEED) * weightSpeedFactor(this.weightRatio) * this.speedScale;
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
     // forward = (-sin, -cos)；right = (cos, -sin)
     const wx = (-sin * mv.y + cos * mv.x) * maxSpeed;
@@ -227,7 +234,7 @@ export class PlayerController {
     st.grounded = floor;
     if (floor) {
       if (wasGrounded === false && this.airTime > 0.12 && fallSpeed > 2) {
-        this.bus.emit('land', { surface: this.sampleSurface(), fallSpeed });
+        this.bus.emit('noise', { kind: 'land', position: vec3(this.curPos), source: 'player', surface: this.sampleSurface(), fallSpeed });
       }
       this.airTime = 0;
     } else {
@@ -241,14 +248,15 @@ export class PlayerController {
     const dist = Math.hypot(dx, dz);
     st.speed = dist / dt;
     st.moving = st.grounded && st.speed > 0.5;
-    const intensity: StepIntensity = st.crouching ? 'crouch' : st.sprinting ? 'sprint' : 'walk';
+    const intensity: StepIntensity = st.crouching ? (st.crouchRunning ? 'crouch_run' : 'crouch') : st.sprinting ? 'sprint' : 'walk';
     if (st.moving) {
       this.stepAccum += dist;
       const stride = STRIDE[intensity];
       if (this.stepAccum >= stride) {
         this.stepAccum -= stride;
         const surface = this.sampleSurface();
-        this.bus.emit('footstep', { surface, intensity, position: this.curPos.clone() });
+        // 蹲走完全無聲：不發 noise 事件（AI 聽不到，自己也沒有腳步聲）
+        if (intensity !== 'crouch') this.bus.emit('noise', { kind: stepKind(intensity), position: vec3(this.curPos), source: 'player', surface });
       }
       this.bobPhase += (dist / STRIDE[intensity]) * Math.PI;
     } else if (st.speed < 0.3) {
@@ -402,7 +410,7 @@ export class PlayerController {
     const targetEye = this.state.crouching ? EYE_CROUCH : EYE_STAND;
     this.eye += (targetEye - this.eye) * Math.min(1, 14 * frameDt);
 
-    const targetAmp = this.state.moving ? (this.state.sprinting ? 0.055 : this.state.crouching ? 0.018 : 0.035) : 0;
+    const targetAmp = this.state.moving ? (this.state.sprinting ? 0.055 : this.state.crouchRunning ? 0.03 : this.state.crouching ? 0.018 : 0.035) : 0;
     this.bobAmp += (targetAmp - this.bobAmp) * Math.min(1, 10 * frameDt);
     const bobY = Math.sin(this.bobPhase * 2) * this.bobAmp;
     const bobX = Math.cos(this.bobPhase) * this.bobAmp * 0.6;
@@ -424,3 +432,4 @@ export class PlayerController {
 }
 
 const DOWN = new THREE.Vector3(0, -1, 0);
+const vec3 = (v: THREE.Vector3) => ({ x: v.x, y: v.y, z: v.z });

@@ -137,9 +137,9 @@ function moveSourceTo(ctx: InvCtx, src: DragSrc, c: ContainerId, i: number, qty?
   if (src.kind === 'slot') {
     if (sameLoc(src.loc, { c, i })) return;
     const r = eco.moveItem(src.loc, { c, i }, qty);
-    if (ctx.ui.report(r)) ctx.ui.audio.playUi('drop', 0.5);
+    if (ctx.ui.report(r)) ctx.ui.dropSound();
   } else {
-    if (ctx.ui.report(eco.unequip(src.slot, c))) ctx.ui.audio.playUi('drop', 0.5);
+    if (ctx.ui.report(eco.unequip(src.slot, c))) ctx.ui.dropSound();
   }
 }
 
@@ -198,7 +198,7 @@ export function equipRow(ctx: InvCtx): HTMLElement {
       onClick: () => {
         const sel = ctx.selection;
         if (!s && sel?.kind === 'slot') {
-          if (ctx.ui.report(ctx.eco.equip(sel.loc, slot))) ctx.ui.audio.playUi('select', 0.5);
+          if (ctx.ui.report(ctx.eco.equip(sel.loc, slot))) ctx.ui.equipSound(slot);
           ctx.select(null);
           return;
         }
@@ -207,7 +207,7 @@ export function equipRow(ctx: InvCtx): HTMLElement {
       },
       onDrop: (src) => {
         if (src.kind === 'slot') {
-          if (ctx.ui.report(ctx.eco.equip(src.loc, slot))) ctx.ui.audio.playUi('select', 0.5);
+          if (ctx.ui.report(ctx.eco.equip(src.loc, slot))) ctx.ui.equipSound(slot);
           ctx.select(null);
         }
       },
@@ -320,7 +320,7 @@ export function slotActions(ctx: InvCtx, loc: Loc, stack: ItemStack, hub: boolea
     if (c === loc.c) continue;
     out.push(btn(`放入${CONTAINER_NAMES[c]}`, () => {
       const r = eco.moveItem(loc, { c }, ctx.qty);
-      if (ctx.ui.report(r)) { ctx.ui.audio.playUi('drop', 0.5); ctx.select(null); }
+      if (ctx.ui.report(r)) { ctx.ui.dropSound(); ctx.select(null); }
     }));
   }
   if (hub) {
@@ -344,7 +344,7 @@ function dropButton(ctx: InvCtx, run: () => { ok: boolean; reason?: string }, na
   const armed = ctx.armedDrop;
   return btn(armed ? '再按一次確認丟棄' : '丟棄', () => {
     if (!ctx.armedDrop) { ctx.armedDrop = true; ctx.onChange(); return; }
-    if (ctx.ui.report(run(), `已丟棄 ${name}`)) { ctx.ui.audio.playUi('drop', 0.5); ctx.select(null); }
+    if (ctx.ui.report(run(), `已丟棄 ${name}`)) { ctx.ui.dropSound(); ctx.select(null); }
   }, armed ? 'danger armed' : 'danger');
 }
 

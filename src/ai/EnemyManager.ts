@@ -5,12 +5,13 @@ import { intersectHitZones } from '../combat/HitZones';
 import type { CombatFx } from '../combat/Fx';
 import type { TargetHit, TargetProvider } from '../combat/WeaponSystem';
 import type { WorldTrace } from '../combat/WorldTrace';
-import { ENEMIES } from '../data/enemies';
+import { ENEMIES, type Difficulty } from '../data/enemies';
 import type { EnemySpawn } from '../world/RaidMap';
 import type { Surface } from '../world/Surface';
 import { Enemy, type EnemyContext, type PlayerTarget } from './Enemy';
 import { EnemyMover } from './EnemyMover';
 import { NavIndex } from './Nav';
+import { isNpcSource, planFlank, shouldFlank } from './Tactics';
 import type { Octree } from 'three/examples/jsm/math/Octree.js';
 import type { NavGraph } from '../world/RaidMap';
 
@@ -28,6 +29,10 @@ export interface ManagerDeps {
   onDeath(e: Enemy): void;
   surfaceAt(p: THREE.Vector3): Surface;
   castShadow: boolean;
+  /** 地圖難度 1～3（★～★★★） */
+  difficulty?: Difficulty;
+  /** 亂數來源（測試用固定 seed） */
+  rng?: () => number;
 }
 
 /** 管理場上敵人：生成、感知事件分派、群組通知、LOD 與命中判定。 */
@@ -43,6 +48,8 @@ export class EnemyManager implements TargetProvider {
   private unsubs: (() => void)[] = [];
   private ctx: EnemyContext;
   private sphere = new THREE.Sphere();
+  private flankT = 0;
+  private flankCd = new Map<string, number>();
 
   constructor(private d: ManagerDeps) {
     this.nav = new NavIndex(d.nav);
@@ -53,15 +60,14 @@ export class EnemyManager implements TargetProvider {
       alertGroup: (g, pos, except) => this.alertGroup(g, pos, except),
       onDeath: (e) => d.onDeath(e),
       surfaceAt: d.surfaceAt,
+      difficulty: d.difficulty ?? 2,
+      rng: d.rng,
     };
+    // 聽覺：玩家（以及之後的其他真人）發出的所有 noise 事件；NPC 彼此不聽
     this.unsubs.push(
-      d.bus.on('shot', (e) => {
-        if (e.shooter) return;
-        for (const en of this.list) en.hearShot(e.position);
-      }),
-      d.bus.on('footstep', (e) => {
-        if (e.source) return;
-        for (const en of this.list) en.hearFootstep(e.intensity, e.surface, e.position);
+      d.bus.on('noise', (e) => {
+        if (isNpcSource(e.source)) return;
+        for (const en of this.list) en.hearNoise(e);
       }),
     );
   }
@@ -106,8 +112,40 @@ export class EnemyManager implements TargetProvider {
         e.interval = dist < 28 || (e.brain.engaged && dist < 70) ? 1 / 30 : dist < 55 ? 1 / 15 : 1 / 6;
       }
     }
+    this.assignFlanks(dt);
     for (const e of this.list) e.step(dt);
     this.frameAcc += performance.now() - t0;
+  }
+
+  /**
+   * 包抄：同一群組有 2 個以上敵人進入戰鬥時，依難度與傾向的機率讓其中一個（離玩家較遠的）
+   * 用 A* 算出一條避開隊友主路線的另一條路，繞到玩家側面。每個群組每 15 秒最多擲一次骰。
+   */
+  private assignFlanks(dt: number): void {
+    this.flankT -= dt;
+    if (this.flankT > 0) return;
+    const step = 0.5;
+    this.flankT = step;
+    for (const [g, t] of this.flankCd) this.flankCd.set(g, t - step);
+    const groups = new Map<string, Enemy[]>();
+    for (const e of this.list) {
+      if (e.dead || !e.group || !e.brain.engaged) continue;
+      (groups.get(e.group) ?? groups.set(e.group, []).get(e.group)!).push(e);
+    }
+    const pl = this.d.player;
+    for (const [g, members] of groups) {
+      if (members.length < 2 || (this.flankCd.get(g) ?? 0) > 0 || members.some((m) => m.flank)) continue;
+      this.flankCd.set(g, 15);
+      members.sort((a, b) => a.pos.distanceTo(pl.feet) - b.pos.distanceTo(pl.feet));
+      const main = members[0];
+      const cand = members[members.length - 1];
+      if (cand.pos.distanceTo(pl.feet) < 12) continue;
+      if (!shouldFlank({ difficulty: this.d.difficulty ?? 2, def: cand.def, rng: this.d.rng ?? Math.random })) continue;
+      const nav = this.nav;
+      const plan = planFlank(nav, nav.nearest(cand.pos), nav.nearest(main.pos), nav.nearest(pl.feet));
+      if (!plan || plan.shared > 1) continue;
+      cand.flank = { route: plan.route.map((i) => nav.nodes[i].clone()), idx: 0, t: 0 };
+    }
   }
 
   /** 每個畫面：更新動畫（只更新視錐內的，遠處降頻），並結算這個畫面的 AI 耗時 */

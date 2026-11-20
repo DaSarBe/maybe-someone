@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { NoiseEvent, NoiseKind } from '../data/noise';
 import type { GameBus } from '../core/EventBus';
 import type { Input } from '../core/Input';
 import { getSurfaceAt } from '../world/Surface';
@@ -42,7 +43,7 @@ export class TestFire {
   update(frameDt: number): void {
     this.cooldown = Math.max(0, this.cooldown - frameDt);
     if (this.input.consumePress('reload')) {
-      this.bus.emit('weaponAction', { weaponId: this.weapon, action: 'reload', position: this.muzzle() });
+      this.noiseAt('reload', { stage: 0 });
     }
     if (this.input.consumePress('fire') && this.cooldown <= 0) {
       this.cooldown = this.weapon === 'rifle' ? 0.12 : 0.18;
@@ -50,13 +51,14 @@ export class TestFire {
     }
   }
 
-  private muzzle(): THREE.Vector3 {
-    return this.camera.getWorldPosition(new THREE.Vector3());
+  private noiseAt(kind: NoiseKind, extra: Partial<NoiseEvent> = {}): void {
+    const p = this.camera.getWorldPosition(new THREE.Vector3());
+    this.bus.emit('noise', { kind, position: { x: p.x, y: p.y, z: p.z }, source: 'player', weaponId: this.weapon, ...extra });
   }
 
   private dryFire(): void {
     if (!this.input.active) return;
-    this.bus.emit('weaponAction', { weaponId: this.weapon, action: 'dry_fire', position: this.muzzle() });
+    this.noiseAt('dry_fire');
   }
 
   fire(): void {
@@ -64,7 +66,7 @@ export class TestFire {
     this.ray.setFromCamera(this.center, this.camera);
     this.ray.far = 150;
     this.dir.copy(this.ray.ray.direction);
-    this.bus.emit('shot', { weaponId: this.weapon, position: this.origin.clone(), direction: this.dir.clone() });
+    this.noiseAt('shot', { direction: { x: this.dir.x, y: this.dir.y, z: this.dir.z } });
 
     const hit = this.ray.intersectObjects(this.targets, false)[0];
     if (!hit) return;

@@ -82,6 +82,14 @@ export function buildControlsPanel(game: Game, onBack: () => void): HTMLElement 
     );
     out.push(modes);
 
+    // ---- 聲音視覺提示 ----
+    const snd = el('section', 'ctl-sec');
+    snd.append(el('h3', '', '聲音'));
+    snd.append(
+      row('聲音視覺提示（準心周圍顯示別人的腳步、槍聲方向）', seg<'on' | 'off'>([['on', '開'], ['off', '關']], () => (cfg().soundIndicator ? 'on' : 'off'), (v) => upd((c) => { c.soundIndicator = v === 'on'; }))),
+    );
+    out.push(snd);
+
     // ---- 輔助瞄準 / 左射擊鍵 ----
     const aid = el('section', 'ctl-sec');
     aid.append(el('h3', '', '手機輔助'));

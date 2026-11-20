@@ -36,6 +36,7 @@ export class LootPanel implements Panel {
     s.qty -= r.taken;
     if (s.qty <= 0) loot[index] = null;
     ui.bus.emit('itemPicked', { itemId: s.id, qty: r.taken });
+    ui.noise('item_pickup');
     if (r.taken < n) ui.toast('背包放不下全部，只拿了一部分', 'info');
   }
 
@@ -52,6 +53,7 @@ export class LootPanel implements Panel {
       s.qty -= r.taken;
       if (s.qty <= 0) loot[i] = null;
       ui.bus.emit('itemPicked', { itemId: s.id, qty: r.taken });
+    ui.noise('item_pickup');
       if (s.qty > 0) blocked = '背包已滿';
     }
     if (blocked) ui.toast(any ? `部分物品沒拿走：${blocked}` : blocked, 'err');

@@ -68,6 +68,8 @@ export interface MapAmbience {
 
 export interface RaidMap extends GameMap {
   eraId: string;
+  /** 地圖難度 1～3（★～★★★）；沒有就用時代（eras.ts）的難度。測試地圖是 1 */
+  difficulty?: 1 | 2 | 3;
   /** 玩家抵達點（時光機出口），RaidScene 隨機挑一個 */
   arrivals: { position: THREE.Vector3; yaw: number }[];
   lootSpots: LootSpot[];

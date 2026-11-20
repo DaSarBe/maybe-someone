@@ -20,7 +20,7 @@ export const SLOT_COUNT = 3;
 export type ElementId =
   | 'stick' | 'fireL' | 'fireR' | 'aim' | 'jump' | 'crouch' | 'reload' | 'interact' | 'swap' | 'heal'
   | 'inventory' | 'menu'
-  | 'timer' | 'ammo' | 'hp' | 'armor' | 'credits' | 'prompt' | 'hitdir';
+  | 'timer' | 'ammo' | 'hp' | 'armor' | 'credits' | 'prompt' | 'hitdir' | 'noisedir';
 
 /** px：直接設定寬高；scale：以自然尺寸套用 transform: scale；center：以中心為原點縮放（受擊方向） */
 export type ApplyMode = 'px' | 'scale' | 'center';
@@ -39,6 +39,8 @@ export interface ElementDef {
   /** 預設中心位置（相對安全區 0～1） */
   x: number;
   y: number;
+  /** 位置固定在畫面中心（準心）：使用者只能調整大小與透明度，不參與重疊檢查 */
+  fixed?: boolean;
 }
 
 const btn = (id: ElementId, label: string, w: number, x: number, y: number): ElementDef =>
@@ -71,6 +73,8 @@ export const ELEMENT_DEFS: ElementDef[] = [
   hud('credits', '信用點', 0.3, 112, 34, 0.1, 0.05),
   hud('prompt', '互動提示', 0.62, 250, 76, 0.5, 0.713),
   { id: 'hitdir', label: '受擊方向', group: 'hud', apply: 'center', w: 0.36, aspect: 1, nat: { w: 320, h: 320 }, x: 0.5, y: 0.384 },
+  // 聲音視覺提示：以準心為中心的圓環，位置固定（只開放大小與透明度）
+  { id: 'noisedir', label: '聲音提示', group: 'hud', apply: 'center', w: 0.62, aspect: 1, nat: { w: 320, h: 320 }, x: 0.5, y: 0.5, fixed: true },
 ];
 
 export const ELEMENT_IDS: ElementId[] = ELEMENT_DEFS.map((d) => d.id);
@@ -130,11 +134,14 @@ export function sizeOf(def: ElementDef, scale: number, safe: Rect): { w: number;
   return { w, h };
 }
 
-/** 中心比例 → 限制在安全區內的矩形（px） */
-export function rectOf(def: ElementDef, item: ItemState, safe: Rect): Rect {
+/**
+ * 中心比例 → 限制在安全區內的矩形（px）。
+ * fixed 的元素（聲音提示）一律以畫面中心（準心）為中心，忽略使用者存的位置；vp 是視窗大小。
+ */
+export function rectOf(def: ElementDef, item: ItemState, safe: Rect, vp?: { w: number; h: number }): Rect {
   const { w, h } = sizeOf(def, item.s, safe);
-  const cx = safe.x + item.x * safe.w;
-  const cy = safe.y + item.y * safe.h;
+  const cx = def.fixed ? (vp ? vp.w / 2 : safe.x + safe.w / 2) : safe.x + item.x * safe.w;
+  const cy = def.fixed ? (vp ? vp.h / 2 : safe.y + safe.h / 2) : safe.y + item.y * safe.h;
   return {
     x: clamp(cx - w / 2, safe.x, safe.x + safe.w - w),
     y: clamp(cy - h / 2, safe.y, safe.y + safe.h - h),
@@ -142,9 +149,9 @@ export function rectOf(def: ElementDef, item: ItemState, safe: Rect): Rect {
   };
 }
 
-export function resolveAll(slot: LayoutSlot, safe: Rect): Record<ElementId, Rect> {
+export function resolveAll(slot: LayoutSlot, safe: Rect, vp?: { w: number; h: number }): Record<ElementId, Rect> {
   const out = {} as Record<ElementId, Rect>;
-  for (const d of ELEMENT_DEFS) out[d.id] = rectOf(d, itemOf(slot, d.id), safe);
+  for (const d of ELEMENT_DEFS) out[d.id] = rectOf(d, itemOf(slot, d.id), safe, vp);
   return out;
 }
 
@@ -159,7 +166,7 @@ export function overlaps(a: Rect, b: Rect, eps = 0.5): boolean {
 }
 
 export function findOverlaps(rects: Partial<Record<ElementId, Rect>>): [ElementId, ElementId][] {
-  const ids = Object.keys(rects) as ElementId[];
+  const ids = (Object.keys(rects) as ElementId[]).filter((id) => !DEF_BY_ID[id].fixed); // 固定在準心的提示圈是透明覆蓋層，不算重疊
   const out: [ElementId, ElementId][] = [];
   for (let i = 0; i < ids.length; i++) {
     for (let j = i + 1; j < ids.length; j++) {

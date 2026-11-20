@@ -43,7 +43,7 @@ export class LayoutManager {
   get viewport(): { w: number; h: number } { return { w: this.vw, h: this.vh }; }
 
   /** 目前配置下某元素的矩形（px） */
-  rect(id: ElementId): Rect { return rectOf(DEF_BY_ID[id], itemOf(this.slot, id), this.safe); }
+  rect(id: ElementId): Rect { return rectOf(DEF_BY_ID[id], itemOf(this.slot, id), this.safe, { w: this.vw, h: this.vh }); }
   opacity(id: ElementId): number { return itemOf(this.slot, id).o; }
 
   /** 儲存整份配置資料（編輯器按「儲存」） */

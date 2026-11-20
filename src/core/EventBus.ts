@@ -1,30 +1,29 @@
 import type * as THREE from 'three';
 import type { ReverbType, ReverbZone, Surface } from '../world/Surface';
+import type { NoiseEvent } from '../data/noise';
 
-export type StepIntensity = 'crouch' | 'walk' | 'sprint';
+export type { StepIntensity } from '../data/noise';
 
 /** 全部遊戲事件的名稱與 payload。新系統在這裡加事件即可。 */
 export interface GameEvents {
-  footstep: { surface: Surface; intensity: StepIntensity; position: THREE.Vector3; /** 發出者：省略 = 玩家；AI 為敵人 id */ source?: string };
-  land: { surface: Surface; fallSpeed: number };
+  /**
+   * 聲音事件：做任何事都會發（腳步、槍聲、換彈、搜刮、治療、交易、撤離…）。
+   * 音效系統（播放）、敵人聽覺、聲音視覺提示都訂閱這一個事件；聽得到的距離見 data/noise.ts。
+   * payload 可序列化（座標 {x,y,z}、source 為字串 id），第二階段可由伺服器直接廣播。
+   */
+  noise: NoiseEvent;
   reverbZoneChanged: { type: ReverbType; zone: ReverbZone | null };
-  /** 任何人開槍（玩家、AI、其他玩家）。position 為槍口世界座標 */
-  shot: { weaponId: string; position: THREE.Vector3; direction?: THREE.Vector3; /** 開槍者：省略 = 玩家；AI 為敵人 id */ shooter?: string; /** 開槍者腳下的材質（彈殼落地聲用） */ surface?: Surface };
   /** 子彈命中。surface 為命中物的材質 */
   impact: { surface: Surface; position: THREE.Vector3; normal?: THREE.Vector3; /** 打中人體（播放肉體命中音） */ flesh?: boolean };
-  /** 槍械的其他聲音：換彈、空槍 */
-  weaponAction: { weaponId: string; action: 'reload' | 'dry_fire' | 'pump'; position: THREE.Vector3 };
   /** 撿起物品（AudioManager 播放 ui pickup） */
   itemPicked: { itemId: string; qty: number };
   /** 玩家受傷（HUD 暈影與方向指示）。from 為攻擊者位置 */
   playerHurt: { amount: number; from?: THREE.Vector3; killed: boolean; /** 護甲吸收了這一發（金屬悶響） */ armor?: boolean };
   /** 玩家的子彈打中敵人（命中標記） */
   enemyHit: { zone: 'head' | 'body' | 'limb'; killed: boolean; position: THREE.Vector3 };
-  /** 敵人的聲音：受傷 / 死亡 / 發現玩家。AudioManager 負責冷卻（alert 不會每個敵人都喊） */
-  enemyVoice: { kind: 'hurt' | 'death' | 'alert'; position: THREE.Vector3; enemyId: string };
   /** 子彈從玩家附近飛過（敵人打偏）。position 為子彈最接近玩家的點 */
   bulletFlyby: { position: THREE.Vector3; distance: number };
-  /** 治療：開始 / 完成 / 取消（音效用） */
+  /** 治療：開始 / 完成 / 取消（本機玩家的確認音；治療的「聲音」走 noise） */
   heal: { phase: 'start' | 'done' | 'cancel' };
   /** 時空穩定度（Raid 倒數）每秒更新；remaining 為剩餘秒數 */
   stabilityChanged: { remaining: number; total: number };

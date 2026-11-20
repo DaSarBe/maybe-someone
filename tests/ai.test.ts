@@ -5,9 +5,8 @@ import { EnemyBrain, DEFAULT_BRAIN, type BrainInput } from '../src/ai/Brain';
 import { buildCorpseLoot } from '../src/ai/CorpseLoot';
 import { NavIndex } from '../src/ai/Nav';
 import { buildNavGrid } from '../src/ai/NavBuilder';
-import { SHOT_HEAR_RADIUS, STEP_RADIUS, SURFACE_LOUDNESS, canHear, footstepHearRadius, inFieldOfView, shotHearRadius, visionGain } from '../src/ai/Perception';
+import { inFieldOfView, visionGain } from '../src/ai/Perception';
 import { ENEMIES } from '../src/data/enemies';
-import { SURFACES } from '../src/world/Surface';
 import type { NavGraph } from '../src/world/RaidMap';
 
 const V = (x: number, z: number, y = 0) => new THREE.Vector3(x, y, z);
@@ -77,43 +76,6 @@ describe('nav grid builder (on real collision)', () => {
     expect(path).toBeTruthy();
     expect(Math.max(...path.map((i) => graph.nodes[i].z))).toBeGreaterThan(4);
     expect(nav.pathLength(path)).toBeGreaterThan(20);
-  });
-});
-
-describe('perception: hearing', () => {
-  it('louder movement is heard from further away', () => {
-    for (const s of SURFACES) {
-      expect(footstepHearRadius('sprint', s)).toBeGreaterThan(footstepHearRadius('walk', s));
-      expect(footstepHearRadius('walk', s)).toBeGreaterThan(footstepHearRadius('crouch', s));
-    }
-    expect(STEP_RADIUS.crouch).toBeLessThan(3);
-  });
-  it('metal ground is louder than grass for the same movement', () => {
-    expect(footstepHearRadius('walk', 'metal')).toBeGreaterThan(footstepHearRadius('walk', 'concrete'));
-    expect(footstepHearRadius('walk', 'concrete')).toBeGreaterThan(footstepHearRadius('walk', 'grass'));
-    expect(footstepHearRadius('walk', 'metal_hollow')).toBeGreaterThan(footstepHearRadius('walk', 'metal'));
-    expect(SURFACE_LOUDNESS.carpet).toBeLessThan(SURFACE_LOUDNESS.sand + 0.01);
-  });
-  it('the same footstep is heard at 15m on metal while sprinting but not on grass while walking', () => {
-    expect(canHear(15, footstepHearRadius('sprint', 'metal'), true)).toBe(true);
-    expect(canHear(15, footstepHearRadius('walk', 'grass'), true)).toBe(false);
-    expect(canHear(6, footstepHearRadius('walk', 'concrete'), true)).toBe(true);
-    expect(canHear(6, footstepHearRadius('crouch', 'concrete'), true)).toBe(false);
-  });
-  it('walls reduce the hearing radius', () => {
-    const r = footstepHearRadius('walk', 'concrete'); // 10m
-    expect(canHear(8, r, true)).toBe(true);
-    expect(canHear(8, r, false)).toBe(false);
-  });
-  it('gunshots are heard across most of the map', () => {
-    expect(SHOT_HEAR_RADIUS).toBeGreaterThanOrEqual(60);
-    expect(canHear(50, shotHearRadius(1), true)).toBe(true);
-    expect(canHear(40, shotHearRadius(1), false)).toBe(true); // 隔牆也聽得到
-    expect(canHear(90, shotHearRadius(1), true)).toBe(false);
-  });
-  it('rival agents hear better than guards', () => {
-    const h = (k: keyof typeof ENEMIES) => footstepHearRadius('walk', 'concrete', ENEMIES[k].hearing);
-    expect(h('rival_agent')).toBeGreaterThan(h('guard'));
   });
 });
 

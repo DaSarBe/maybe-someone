@@ -16,6 +16,8 @@ export interface ControlSettings {
   aimMode: HoldMode;
   leftFire: boolean;
   assist: AssistLevel;
+  /** 聲音視覺提示（螢幕邊緣顯示別人發出的聲音方向）；預設開啟 */
+  soundIndicator: boolean;
 }
 
 export const SENS_MIN = 0.2;
@@ -36,6 +38,7 @@ export function defaultControls(touch: boolean): ControlSettings {
     aimMode: 'hold',
     leftFire: true,
     assist: 'standard',
+    soundIndicator: true,
   };
 }
 
@@ -69,6 +72,7 @@ export function migrateControls(raw: unknown, touch: boolean): ControlSettings {
     aimMode: pick(r.aimMode, ['hold', 'toggle'] as const, d.aimMode),
     leftFire: typeof r.leftFire === 'boolean' ? r.leftFire : d.leftFire,
     assist: pick(r.assist, ['off', 'weak', 'standard'] as const, d.assist),
+    soundIndicator: typeof r.soundIndicator === 'boolean' ? r.soundIndicator : d.soundIndicator,
   };
 }
 

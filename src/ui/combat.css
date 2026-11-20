@@ -87,3 +87,8 @@
 .cb-armorbox .cb-bar { height: 14px; line-height: 14px; }
 .cb-heal.in-box { position: static; transform: none; flex-direction: row; align-items: center; gap: 6px; font-size: 10px; width: 100%; }
 .cb-heal.in-box .cb-healbar { flex: 1; width: auto; height: 5px; }
+
+/* ===== 聲音視覺提示（以準心為中心的圓環；位置固定，大小與透明度可在版面編輯器調整） ===== */
+.nd-root { position: fixed; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; z-index: 18; }
+.nd-root.hidden { display: none; }
+.nd-canvas { position: absolute; left: -160px; top: -160px; pointer-events: none; }

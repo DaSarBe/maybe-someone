@@ -83,7 +83,7 @@ public/assets/            models/ sounds/ sprites/ textures/ + CREDITS.md + mani
   玩家向下射線讀取材質，決定腳步聲。槍彈擊中時也依材質播放不同的命中聲。
 - **空間（回音區）**：地圖定義 `ReverbZone { box: Box3, type: 'outdoor' | 'indoor_small' | 'indoor_large' | 'tunnel' }`，
   AudioManager 依玩家所在區域切換 ConvolverNode 的混音比例（用程式產生脈衝響應，不需要素材）。
-- **事件匯流排**：系統之間用 EventBus 溝通（例如 `footstep`、`shot`、`hit`、`itemPicked`、`stabilityChanged`），降低耦合。
+- **事件匯流排**：系統之間用 EventBus 溝通（例如 `noise`、`impact`、`itemPicked`、`stabilityChanged`）；所有「動作的聲音」統一走 `noise` 事件（見第 10 節），降低耦合。
 - **資料與邏輯分離**：物品與武器數值放在 `src/data/`，邏輯層不寫死數值，方便第二階段搬到伺服器驗證。
 - **存檔**：只透過 `SaveService` 存取，不可直接呼叫 localStorage。
 
@@ -95,6 +95,7 @@ public/assets/            models/ sounds/ sprites/ textures/ + CREDITS.md + mani
 | 視角 | 滑鼠（Pointer Lock） | 右半螢幕拖曳 |
 | 射擊 / 瞄準 | 左鍵 / 右鍵 | 射擊鍵 / 瞄準鍵 |
 | 跳 / 蹲 / 衝刺 | Space / C / Shift | 按鈕 / 按鈕 / 搖桿推到底 |
+| 蹲跑（蹲下時衝刺） | C + Shift | 蹲下後把搖桿推到底 |
 | 互動 / 換彈 / 背包 | E / R / Tab | 按鈕 |
 
 ## 6. 第一張地圖（暫定）
@@ -108,9 +109,9 @@ public/assets/            models/ sounds/ sprites/ textures/ + CREDITS.md + mani
 - **物品狀態值 `ItemStack.dur`**：護甲 = 剩餘耐久，武器 = 彈匣內子彈數（省略 = 全新 / 滿彈匣）。上限由 `itemMaxDur(id)` 決定。
   彈藥從背包扣（`EconomyService.consumeCarried`），換彈完成時才扣；彈匣與護甲耐久在換槍、開啟介面、撤離 / 死亡前寫回（`setEquipState`），不是每發都存檔。
 - **戰鬥解耦**：`PlayerController` 不認識武器，只有 `speedScale`、`sprintBlocked`、`addView()`（後座力）、`shake()`（受傷）；`Input.lookScale` 用於瞄準與觸控輔助瞄準。
-  武器系統透過 Input 與 EventBus 溝通：`shot`（`shooter` 省略 = 玩家，AI 帶敵人 id）、`impact`（`flesh` = 打中人體）、`weaponAction`、`footstep`（`source`）、`playerHurt`、`enemyHit`。
+  武器系統透過 Input 與 EventBus 溝通：`noise`（開槍、換彈、腳步…，`source` = `'player'` 或敵人 id；M5s 取代了舊的 `shot` / `weaponAction` / `footstep` / `enemyVoice`）、`impact`（`flesh` = 打中人體）、`playerHurt`、`enemyHit`。
 - **傷害**（`combat/Damage.ts`，玩家與敵人共用）：頭 ×2.5、身體 ×1、四肢 ×0.7；護甲在耐久 > 0 時對身體與四肢減傷並消耗耐久（傷害 × 0.3），頭部無視護甲；距離衰減見 `damageFalloff`。
-- **敵人 AI**（`ai/`）：`Brain.ts` 是純邏輯狀態機（巡邏 / 警戒 / 追擊 / 攻擊 / 搜索 / 死亡），`Perception.ts` 是視覺（發現值累積）與聽覺（腳步聲半徑 = 強度 × 地面材質響度）的公式，
+- **敵人 AI**（`ai/`）：`Brain.ts` 是純邏輯狀態機（巡邏 / 警戒 / 追擊 / 攻擊 / 搜索 / 死亡），`Perception.ts` 是視覺（發現值累積）的公式（聽覺已移到 `data/noise.ts`，見第 10 節），
   `Nav.ts` 是 A*，`NavBuilder.ts` 可在靜態碰撞上自動產生導航圖，`Enemy.ts` 負責移動、射擊、動畫，`EnemyManager.ts` 負責生成、事件分派、LOD（遠處降低 AI 與動畫更新頻率）。
 - 敵人數值與掉落在 `data/enemies.ts`；武器手感（散佈、瞄準 FOV）在 `data/weaponHandling.ts`；醫療品在 `data/medical.ts`。
 
@@ -119,7 +120,7 @@ public/assets/            models/ sounds/ sprites/ textures/ + CREDITS.md + mani
 - **地圖載入**：`maps/index.ts` 的 harbor_1990 用動態 import（獨立 chunk，不進主 bundle）；測試地圖用 `?scene=raid&map=test`（基礎 5 分鐘）。`RaidMap.ownsLighting` = true 時 RaidScene 不呼叫 `setupLighting`（光源、霧、天空在地圖 root 內）；`RaidMap.lightAt(pos)` 提供敵人感知用的亮度（harbor：室內外底值 + 點光源距離衰減）；`RaidMap.ambience` 設定地圖專屬環境音（浪聲定位、海鷗、遠方汽笛），由 `AudioManager.startMapAmbience` 執行。
 - **時空穩定度時間** = 時代基礎時間（`eras.ts baseDuration`，harbor_1990 = 12 分鐘）+ 穩定器升級加成（每級 +45 秒）；測試地圖 5 分鐘。
 - **槍械模型**：`combat/WeaponModels.ts` 載入 Quaternius OBJ+MTL，MTL 全是同一個灰色，所以依材質名稱重新上色並烤進頂點色，合併成最多 2 個 mesh（前段 + 槍托，瞄準時隱藏槍托），平面法線。槍口座標是火光與曳光彈的起點。載入失敗退回方塊槍。
-- **音效**：`enemy` 類別在 p1 sprite；敵人用 `enemyVoice` 事件（受傷 / 死亡 / 發現玩家，alert 全場冷卻 4.5 秒、同一個敵人 15 秒）；`bulletFlyby`（敵人打偏且經過玩家 2m 內）、`playerHurt.armor`（護甲吸收 → `impacts.player_armor`）；`casing`（依地面材質變化）、`player_armor`、`bullet_flyby`、`shotgun_boom`、`shotgun_pump` 由 Synth 合成。衝鋒槍 = pistol_fire 加快 30% + 高頻擱架 +7dB；霰彈槍 = rifle_fire 降到 0.62 倍 + 合成低頻爆破層，開槍後 0.42 秒自動上膛（pump）。見 `AudioManager.SHOT_LAYERS`。
+- **音效**：`enemy` 類別在 p1 sprite；敵人的受傷 / 死亡 / 發現玩家喊叫走 `noise`（`hurt` / `death` / `alert`；alert 全場冷卻 4.5 秒、同一個敵人 15 秒）；`bulletFlyby`（敵人打偏且經過玩家 2m 內）、`playerHurt.armor`（護甲吸收 → `impacts.player_armor`）；`casing`（依地面材質變化）、`player_armor`、`bullet_flyby`、`shotgun_boom`、`shotgun_pump` 由 Synth 合成。衝鋒槍 = pistol_fire 加快 30% + 高頻擱架 +7dB；霰彈槍 = rifle_fire 降到 0.62 倍 + 合成低頻爆破層，開槍後 0.42 秒自動上膛（pump）。見 `AudioManager.SHOT_LAYERS`。
 
 ### 時代商人（漁市場「時代商行」）
 核心特色：**把未來商品帶去過去賣**。貨幣是物品「舊台幣」`old_ntd`（類別 currency，1 張 = 1 元，可堆疊 5000、每張 0.0008 kg，帶回未來每張值 ₵1），只在背包裡流通，死亡就沒了。全部交易走 `EconomyService.traderSell / traderBuy`（驗證、失敗整筆回滾）；資料在 `data/traders.ts`，定價在 `economy/Trader.ts`。
@@ -143,3 +144,78 @@ public/assets/            models/ sounds/ sprites/ textures/ + CREDITS.md + mani
 - **編輯器**（暫停選單 →「按鍵配置」）：全部在草稿上編輯，「儲存」才寫入；重疊只警告不阻擋。
 - **控制設定**（`src/settings/ControlSettings.ts`，存檔 key `controls`）：靈敏度、陀螺儀、蹲下 / 瞄準模式、左射擊鍵、輔助瞄準。`Input.setSettings` 即時套用；蹲下 / 瞄準的「點一下切換」統一在 `Input.setAction` 處理（所有來源通用）。
 - **陀螺儀**（`src/input/Gyro.ts` + `gyroMath.ts`）：用 `devicemotion.rotationRate`，依 `screen.orientation.angle` 轉成螢幕軸，經死區與平滑後只呼叫 `Input.addLook(dx, dy, 'gyro')`。iOS 需在點擊中呼叫 `requestPermission()`，且只有 HTTPS 才能用。
+
+## 10. M5s 聲音事件系統、敵人戰術與地圖難度
+
+> 設計原則：**做任何事情都有該動作的聲音，而且依距離遠近變大聲或變小聲**，讓 NPC（以及第二階段的真人玩家）的行動可以被聽到，增加戰略性。
+
+### 10.1 統一的 `noise` 事件
+- `GameEvents.noise: NoiseEvent`（`src/data/noise.ts`）：`{ kind, position:{x,y,z}, source, surface?, loudness?, weaponId?, fallSpeed?, stage?, direction?, item? }`。
+  玩家、敵人、（之後的）其他玩家做任何動作都發這個事件；**音效系統（播放）、敵人聽覺（`Enemy.hearNoise`）、聲音視覺提示（`NoiseIndicator`）都只訂閱它**。
+  舊的 `footstep` / `land` / `shot` / `weaponAction` / `enemyVoice` 已併入。
+- **第二階段準備**：payload 全部是可序列化的原始型別（座標是 `{x,y,z}`，不是 `Vector3`；`source` 是字串 id：`'player'` = 本機玩家、`'e3'` = 敵人、之後是其他玩家的 id），
+  連線時伺服器可以直接廣播，每個客戶端用同一張表（`noiseRange`）+ 自己的 Octree 決定「我聽不聽得到、多大聲」。`isNpcSource(id)` 區分 NPC（`/^e\d+$/`）與真人；敵人只聽非 NPC 的聲音。
+- **同一張距離表**：玩家聽 NPC 與 NPC 聽玩家都用 `NOISE_RANGE`（`data/noise.ts`），沒有第二份。
+
+### 10.2 聽得到的距離
+| 動作（kind） | 距離 |
+|---|---|
+| 衝刺腳步 `footstep_sprint` | 30m |
+| 走路腳步 `footstep_walk` | 18m |
+| **蹲走 `footstep_crouch`** | **0（完全無聲，不發事件）** |
+| 蹲跑 `footstep_crouch_run` | 8m |
+| 跳躍落地 `land` | 15～25m（依下落速度 2→11 m/s 線性） |
+| 開槍 `shot` | 80～120m：手槍 80、衝鋒槍 90、霰彈槍 100、步槍 120（滅音器以後用 `loudness` 倍率） |
+| 換彈 `reload`（3 段：卸彈匣 0%、插彈匣 42%、拉槍機 84%） | 10m |
+| 切換武器 `weapon_swap` | 8m |
+| 空槍 `dry_fire` | 6m |
+| 霰彈槍上膛 `pump`（表外補充） | 10m |
+| 治療 `heal`（撕繃帶 / 注射） | 8m |
+| 搜刮 `search`（持續，每 0.5 秒一次心跳；開箱再一次） | 12m |
+| 撿起 / 丟下物品 `item_pickup` / `item_drop` | 6m |
+| 裝備護甲 `armor_equip` | 6m |
+| 和商人交易 `trade` | 8m |
+| 撤離倒數 `evac`（時光機嗡嗡聲，持續） | 40m |
+| 受傷悶哼、死亡 `hurt` / `death`（敵人發現玩家的喊叫 `alert`：表外補充，同為 20m） | 20m |
+
+- **腳步乘地面材質係數** `SURFACE_LOUDNESS`（沿用原本 Perception 的數值並統一）：metal_hollow 1.8、metal_grate 1.6、metal 1.5、gravel 1.35、water 1.25、wood 1.2、tile 1.1、concrete 1.0、dirt 0.8、grass 0.6、sand 0.55、carpet 0.45。其他動作不乘。
+- **衰減曲線** `distanceGain(dist, range)`：`REF_DISTANCE`（2.5m）內全開，之後 `(1 - t)^1.5`（t = (d-2.5)/(range-2.5)），**到 range 剛好 0、超過一律 0**（不像 inverse 衰減永遠有一點聲音）。
+  AudioManager 的 GainNode、敵人聽覺機率、視覺提示三處共用這一條；PannerNode 的 `rolloffFactor = 0`，只負責 HRTF 方位。
+- **牆壁遮擋**（`audio/Hearing.ts assessHearing`）：聲源（腳底的聲音抬高 0.9m）到耳朵做 Octree raycast（`AudioManager.setOccluder`，RaidScene 提供，與敵人視線同一支 `EnemyMover.los`）：被擋住 → 音量 ×0.4（-8dB）、低通 1000Hz。
+  **每個聲音開始播放時只算一次**；持續型（搜刮、撤離嗡嗡聲）每 0.25 秒重新評估（`updateSustained`），超過 1 秒沒收到心跳就淡出停止。
+- **上下樓層**：高低差超過 2.5m → 音量 ×0.88、低通 3200Hz、殘響多送 0.3。
+- 播放規則：本機玩家（`source === 'player'`）的聲音非定位；其他人的聲音全部用 HRTF 定位 + 上述衰減；超過距離不播放（也不佔 voice）。`audio.debugInfo().noiseLog` 與 `audio.recent` 記錄每個聲音的距離、音量、是否遮擋、相對耳朵的方位角（-90 = 左、+90 = 右）。
+- 新增的合成音（`audio/Synth.ts`，manifest 沒有素材所以不需要重建 sprite）：`weapons.mag_out / mag_in / bolt_rack`（換彈三段）、`weapons.swap`、`sfx.heal_bandage`、`sfx.heal_inject`、`sfx.armor_equip`、`sfx.trade_cash`、`impacts.body_fall`（倒地，另疊地面材質腳步聲）、`sfx.evac_hum`（可循環）。
+
+### 10.3 蹲跑
+`PlayerController`：蹲下時按衝刺（Shift，或手機把搖桿推到底）= **蹲跑**，速度 2.8 m/s（蹲走 1.9、走路 4.0），鏡頭晃動介於蹲走與走路之間，發出 `footstep_crouch_run`（8m）。
+蹲走不發任何事件（AI 聽不到、自己也沒有腳步聲）。`StepIntensity = 'crouch' | 'crouch_run' | 'walk' | 'sprint'`。敵人也有蹲走（無聲）與蹲跑兩種姿態（`Enemy.stance`）。
+
+### 10.4 聲音視覺提示（預設開啟）
+`ui/NoiseIndicator.ts` + `ui/noiseIndicatorModel.ts`：準心周圍圓環上的小弧形，只顯示**別人**的聲音（`AudioManager.onHeard` 只通知非本機玩家、已通過距離與遮擋判定的聲音）。
+角度 = 聲源相對視線的水平角（0 在上、順時針；正後方在下方，視角轉動時弧形跟著轉）；透明度、寬度、持續時間（0.6～1.2 秒）依「聽到的音量」；腳步白、槍聲紅（較寬較久）、其他動作黃；高低差超過 2.5m 加 ▲ ▼；同方向（16° 內）合併、最多同時 8 個。
+開關在「操作設定 → 聲音」（`ControlSettings.soundIndicator`，預設開）。版面系統元素 `noisedir`（`fixed: true`）：位置固定在畫面中心（準心），使用者只能調大小與透明度，不參與重疊檢查。
+
+### 10.5 敵人戰術（`ai/Tactics.ts` + `ai/Enemy.ts` + `ai/EnemyManager.ts`）
+- **聽覺**：`Enemy.hearNoise(ev)`：先看在不在 `noiseRange` 內 → `assessHearing`（距離 × 遮擋 × 樓層）→ 機率 `hearChance = (0.45 + 0.55·√音量) × 聽力 × 難度聽覺倍率`（持續型 ×0.6）。聽到 → 警戒並前往聲源（誤差 = 距離 × 5%，槍聲 12%）。已進入戰鬥的敵人不會被引走。
+  玩家在敵人附近搜刮、換彈、治療、開箱、交易、撤離都可能被聽到。
+- **蹲下偷襲**：進入警戒 / 搜索時擲一次骰（`tactics.sneak × 難度`）；成功則距離調查點 / 最後已知位置 14m 內改成蹲走（無聲、速度 ×0.5）。
+- **趁換彈衝過來**：聽到玩家換彈（每次換彈只擲一次）或看到玩家治療，且距離 ≤ 25m：依 `tactics.rush × 難度` 的機率，未交戰者直接進入追擊（`brain.rush`）、交戰中者 4 秒內往玩家推進（`pushT`）。
+- **包抄**：同群組 2 人以上交戰時，`EnemyManager.assignFlanks`（每群組每 15 秒擲一次骰，`tactics.flank × 難度`）讓離玩家最遠（≥12m）的一個，用 `planFlank`（A*，隊友主路線上的節點 +60m、附近 5m 內 +18m 的額外成本）算出另一條路線繞到側面；
+  共用節點超過一半或繞路超過主路線 2.5 倍 + 20m 就放棄。繞路時距離玩家 > 16m 且沒被看到用蹲跑（8m 腳步聲），被看到且 < 14m、超過 25 秒或走完路線就結束包抄。
+- **腳步 noise**：巡邏走路 `footstep_walk`、追擊衝刺 `footstep_sprint`、偷襲蹲走無聲、包抄蹲跑 `footstep_crouch_run`；敵人的開槍、換彈（3 段）、受傷、死亡都發 `noise`。
+- 敵人傾向（`EnemyDef.tactics`，再乘難度機率）：警衛 {偷襲 0.5、衝鋒 0.6、包抄 0.5}；**黑道打手**莽撞 {0.3、1.3、0.8}；**敵對穿越者**訓練有素 {1.4、1.0、1.4}。
+
+### 10.6 地圖難度
+`EraDef.difficulty: 1 | 2 | 3`（★ 簡單、★★ 普通、★★★ 困難）；`RaidMap.difficulty` 可覆寫（測試地圖 = 1，harbor_1990 = 2）。時光機面板顯示星等與說明。係數表 `DIFFICULTY`（`data/enemies.ts`）：
+
+| | ★ | ★★ | ★★★ |
+|---|---|---|---|
+| 命中率倍率（上限 0.95） | 0.75 | 1.0 | 1.3 |
+| 反應時間倍率（發現玩家所需時間） | 1.3 | 1.0 | 0.75 |
+| 聽覺靈敏度倍率（只影響「聽到的機率」，距離仍由 noise 表決定） | 0.8 | 1.0 | 1.25 |
+| 偷襲基礎機率 | 0.2 | 0.45 | 0.75 |
+| 趁換彈 / 治療衝鋒基礎機率 | 0.25 | 0.5 | 0.8 |
+| 包抄基礎機率 | 0.2 | 0.45 | 0.75 |
+
+戰術機率 = 難度基礎機率 × 敵人傾向（上限 0.95）。

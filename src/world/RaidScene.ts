@@ -12,6 +12,9 @@ import { WeaponSystem } from '../combat/WeaponSystem';
 import { WorldTrace } from '../combat/WorldTrace';
 import type { Game, Scene } from '../core/Game';
 import { DEFAULT_ERA, getEra } from '../data/eras';
+import { SUSTAINED_BEAT } from '../data/noise';
+import { asDifficulty, type Difficulty } from '../data/enemies';
+import { NoiseIndicator } from '../ui/NoiseIndicator';
 import { LOOT_TABLES, type ContainerLootDef, type ContainerType } from '../data/lootTables';
 import type { Slot } from '../items/Inventory';
 import { rollContainer } from '../items/LootTable';
@@ -89,6 +92,10 @@ export class RaidScene implements Scene {
   loadError: string | null = null;
   killedBy: string | null = null;
   trader: TraderNpc | null = null;
+  /** 地圖難度 1～3（★～★★★）：敵人命中率、反應、聽覺與戰術機率 */
+  difficulty: Difficulty = 2;
+  /** 聲音視覺提示（準心周圍的方向弧形） */
+  noiseHud: NoiseIndicator | null = null;
   /** 準心正對著敵人 */
   onTarget = false;
 
@@ -99,6 +106,7 @@ export class RaidScene implements Scene {
   private dbg: DebugHud | null = null;
   private menu: PauseMenu | null = null;
   private mc: MobileControls | null = null;
+  private beatT: Record<string, number> = {};
   private vm = new Viewmodel();
   private trace!: WorldTrace;
   private loading: HTMLElement | null = null;
@@ -121,6 +129,7 @@ export class RaidScene implements Scene {
   private disposed = false;
   private playerTarget: PlayerTarget = {
     feet: new THREE.Vector3(), eye: new THREE.Vector3(), crouching: false, sprinting: false, moving: false, alive: true,
+    crouchRunning: false, healing: false, reloading: false,
   };
   private frustum = new THREE.Frustum();
   private projScreen = new THREE.Matrix4();
@@ -186,6 +195,7 @@ export class RaidScene implements Scene {
     ]);
     if (this.disposed) return;
     this.map = map;
+    this.difficulty = asDifficulty(map.difficulty ?? getEra(this.era)?.difficulty);
 
     // 地圖自帶光源、霧、天空（harbor1990）就不再套用預設燈光
     if (!map.ownsLighting) setupLighting(this.scene, { shadowMapSize: touch ? 1024 : 2048, extent: 62 });
@@ -227,7 +237,15 @@ export class RaidScene implements Scene {
       onDeath: (e) => this.spawnCorpse(e),
       surfaceAt: (p) => this.surfaceAt(p),
       castShadow: !touch,
+      difficulty: this.difficulty,
     });
+    // 聲音遮擋：聲源到耳朵之間有牆壁 / 貨櫃（Octree raycast）就加低通並降低音量
+    const oa = new THREE.Vector3(), ob = new THREE.Vector3();
+    game.audio.setOccluder((a, b) => this.enemies.mover.los(oa.set(a.x, a.y, a.z), ob.set(b.x, b.y, b.z)));
+    this.ui.noiseAt = () => ({ x: this.player.position.x, y: this.player.position.y + 1.0, z: this.player.position.z });
+    this.noiseHud = new NoiseIndicator(game.container, game.audio, touch ? game.layout : null, () => ({ ear: this.camera.position, yaw: this.player.facingYaw }));
+    this.noiseHud.setEnabled(game.controls.get().soundIndicator);
+    this.unsubs.push(game.controls.subscribe((c) => this.noiseHud?.setEnabled(c.soundIndicator)));
     this.weapons = new WeaponSystem({
       bus: game.bus, input: game.input, player: this.player, camera: this.camera, eco, fx: this.fx,
       trace: this.trace, targets: this.enemies, vm: this.vm, health: this.health,
@@ -235,7 +253,7 @@ export class RaidScene implements Scene {
 
     this.menu = new PauseMenu(game.container, game.input, game.audio, {
       touch, debug: game.debug, game,
-      hint: 'WASD 移動 ・ 左鍵射擊 ・ 右鍵瞄準 ・ R 換彈 ・ 1/2 或滾輪換槍 ・ 4 治療 ・ 按住 E 搜索 ・ Tab 背包 ・ K 模擬死亡（測試）・ Esc 暫停|左側搖桿移動 ・ 右側拖曳轉視角 ・ 左右兩側射擊鍵（右側可拖曳轉視角）・ 瞄準、換彈、切換武器、治療 ・ 按住「互動」搜索',
+      hint: 'WASD 移動（Shift 衝刺、C 蹲下、蹲下再按 Shift = 蹲跑）・ 左鍵射擊 ・ 右鍵瞄準 ・ R 換彈 ・ 1/2 或滾輪換槍 ・ 4 治療 ・ 按住 E 搜索 ・ Tab 背包 ・ K 模擬死亡（測試）・ Esc 暫停|左側搖桿移動（蹲下後推到底 = 蹲跑）・ 右側拖曳轉視角 ・ 左右兩側射擊鍵（右側可拖曳轉視角）・ 瞄準、換彈、切換武器、治療 ・ 按住「互動」搜索',
       isBlocked: () => this.ui.isOpen,
       extra: [
         { label: '模擬死亡（測試）', onClick: () => this.end('death'), confirm: '再按一次確認：你會失去所有物品' },
@@ -285,6 +303,8 @@ export class RaidScene implements Scene {
     this.enemies.dispose();
     this.trader?.dispose();
     this.game.audio.stopMapAmbience();
+    this.game.audio.setOccluder(null);
+    this.noiseHud?.dispose();
     this.fx.dispose();
     this.ui.dispose();
     this.hud.dispose();
@@ -484,6 +504,19 @@ export class RaidScene implements Scene {
     (c.marker.material as THREE.MeshBasicMaterial).color.set(c.searched ? '#8892a0' : MARKER_COLOR[c.type]);
   }
 
+  /** 玩家的聲音事件（手部高度）；持續型（搜刮、撤離）由 beat 每 SUSTAINED_BEAT 秒送一次心跳 */
+  private emitNoise(kind: 'search' | 'evac'): void {
+    const p = this.player.position;
+    this.game.bus.emit('noise', { kind, position: { x: p.x, y: p.y + 1.0, z: p.z }, source: 'player' });
+  }
+
+  private beat(id: string, kind: 'search' | 'evac'): void {
+    const now = this.t;
+    if (now - (this.beatT[id] ?? -99) < SUSTAINED_BEAT) return;
+    this.beatT[id] = now;
+    this.emitNoise(kind);
+  }
+
   private onHurt(amount: number, from?: THREE.Vector3): void {
     let angle: number | null = null;
     if (from) {
@@ -518,6 +551,9 @@ export class RaidScene implements Scene {
     pt.crouching = s.crouching;
     pt.sprinting = s.sprinting && s.moving;
     pt.moving = s.moving;
+    pt.crouchRunning = s.crouchRunning && s.moving;
+    pt.healing = this.health.healing;
+    pt.reloading = !!this.weapons.current?.reloading;
     pt.alive = !this.health.dead;
     this.enemies.update(dt);
 
@@ -542,6 +578,7 @@ export class RaidScene implements Scene {
       if (Math.hypot(pos.x - e.def.position.x, pos.z - e.def.position.z) <= e.def.radius && Math.abs(pos.y - e.def.position.y) < 2.5) inEvac = true;
     }
     if (inEvac) {
+      this.beat('evac', 'evac');
       this.evacProgress += dt / EVAC_SECONDS;
       if (this.evacProgress >= 1) { this.end('extract'); return; }
     } else this.evacProgress = Math.max(0, this.evacProgress - dt * 2);
@@ -564,6 +601,7 @@ export class RaidScene implements Scene {
     if (near && near !== this.searching) { this.searching = null; this.searchProgress = 0; }
     if (near && !near.searched && inp.isDown('interact') && !this.needRelease) {
       this.searching = near;
+      this.beat('search', 'search');
       const total = near.def.searchTime * this.game.economy.searchScale();
       this.searchProgress += dt / total;
       if (this.searchProgress >= 1) {
@@ -572,6 +610,8 @@ export class RaidScene implements Scene {
         this.searchProgress = 0;
         this.needRelease = true;
         this.refreshMarker(near);
+        this.game.audio.play({ key: 'sfx.container_open', volume: 0.7, tag: 'container open' });
+        this.emitNoise('search');
         this.openContainer(near);
       }
     } else {
@@ -613,6 +653,7 @@ export class RaidScene implements Scene {
       this.updateAimTarget();
     }
     this.fx.update(frameDt);
+    this.noiseHud?.update(frameDt);
     this.projScreen.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.projScreen);
     this.enemies.updateAnim(frameDt, this.frustum);
@@ -650,7 +691,7 @@ export class RaidScene implements Scene {
     this.dbg?.update(frameDt, {
       surface: this.player.surface,
       zone: this.zoneType,
-      moveState: !s.grounded ? 'air' : s.sprinting && s.moving ? 'sprint' : s.moving ? 'walk' : 'idle',
+      moveState: !s.grounded ? 'air' : s.sprinting && s.moving ? 'sprint' : s.crouchRunning && s.moving ? 'crouch run' : s.crouching && s.moving ? 'crouch (silent)' : s.moving ? 'walk' : 'idle',
       position: `${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}  hp=${Math.ceil(this.health.hp)} ai=${this.enemies.aiMs.toFixed(2)}ms n=${this.enemies.alive.length}`,
       sound: game.audio.lastSound,
       audioState: `${game.audio.state} voices=${game.audio.voiceCount}`,

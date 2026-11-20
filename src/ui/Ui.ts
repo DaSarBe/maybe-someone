@@ -1,4 +1,5 @@
 import type { Game } from '../core/Game';
+import type { NoiseEvent, NoiseKind, Vec3 } from '../data/noise';
 import { btn, el, fmtCredits } from './dom';
 
 export interface Panel {
@@ -21,6 +22,18 @@ export class Ui {
   private panel: Panel | null = null;
   private lastToast = '';
   private lastToastAt = 0;
+
+  /** 聲音事件的位置來源（RaidScene 設定；基地沒有，不發聲音事件） */
+  noiseAt: (() => Vec3) | null = null;
+
+  /** 介面操作造成的聲音（撿起、丟下、裝備護甲、交易）：AI 與其他玩家聽得到，距離見 data/noise.ts */
+  noise(kind: NoiseKind, extra: Partial<NoiseEvent> = {}): void {
+    if (!this.noiseAt) return;
+    this.game.bus.emit('noise', { kind, position: this.noiseAt(), source: 'player', ...extra });
+  }
+
+  dropSound(): void { this.audio.playUi('drop', 0.5); this.noise('item_drop'); }
+  equipSound(slot: string): void { this.audio.playUi('select', 0.5); if (slot === 'armor') this.noise('armor_equip'); }
 
   /** 關閉面板後的回呼（場景用來重新鎖定滑鼠） */
   onClosed: (() => void) | null = null;

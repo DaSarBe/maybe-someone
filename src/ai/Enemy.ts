@@ -4,7 +4,9 @@ import { computeDamage, damageFalloff, type HitZone } from '../combat/Damage';
 import type { CombatFx } from '../combat/Fx';
 import type { WorldTrace } from '../combat/WorldTrace';
 import { ARMOR_STATS } from '../data/gear';
-import { accuracyAt, pickWeapon, type EnemyDef } from '../data/enemies';
+import { DIFFICULTY, accuracyAt, pickWeapon, scaledAccuracy, type Difficulty, type EnemyDef } from '../data/enemies';
+import type { NoiseEvent, NoiseKind } from '../data/noise';
+import { assessHearing } from '../audio/Hearing';
 import { WEAPON_STATS } from '../data/weapons';
 import type { WeaponStats } from '../data/types';
 import type { EnemySpawn } from '../world/RaidMap';
@@ -13,8 +15,8 @@ import { EnemyBrain, type AiState } from './Brain';
 import { EnemyMover } from './EnemyMover';
 import { createEnemyModel, type EnemyAnim } from './EnemyModel';
 import type { NavIndex } from './Nav';
-import { canHear, footstepHearRadius, inFieldOfView, shotHearRadius, visionGain } from './Perception';
-import type { StepIntensity } from '../core/EventBus';
+import { inFieldOfView, visionGain } from './Perception';
+import { RUSH_RANGE, SNEAK_APPROACH, hearChance, isNpcSource, shouldRush, shouldSneak } from './Tactics';
 
 /** 玩家的感知用資訊（每幀由場景更新同一個物件） */
 export interface PlayerTarget {
@@ -24,6 +26,11 @@ export interface PlayerTarget {
   sprinting: boolean;
   moving: boolean;
   alive: boolean;
+  /** 蹲跑中（蹲下 + 衝刺） */
+  crouchRunning?: boolean;
+  /** 正在治療 / 換彈（敵人看到治療、聽到換彈會趁機衝過來） */
+  healing?: boolean;
+  reloading?: boolean;
 }
 
 export interface EnemyContext {
@@ -43,7 +50,19 @@ export interface EnemyContext {
   readonly all: Enemy[];
   /** 腳下材質（敵人腳步聲用） */
   surfaceAt(p: THREE.Vector3): Surface;
+  /** 地圖難度（命中率、反應、聽覺、戰術機率，見 data/enemies.ts DIFFICULTY） */
+  difficulty?: Difficulty;
+  /** 亂數來源（測試用固定 seed）；預設 Math.random */
+  rng?: () => number;
 }
+
+/** 移動姿態：蹲走完全無聲、蹲跑 8m、走路 18m、衝刺 30m（見 data/noise.ts） */
+export type Stance = 'walk' | 'crouch' | 'crouch_run';
+export type HearResult = 'ignored' | 'missed' | 'heard' | 'rush';
+
+const CROUCH_SPEED_K = 0.5;
+const CROUCH_RUN_SPEED_K = 1.7;
+const FLANK_MAX_TIME = 25;
 
 let nextId = 1;
 const TURN_RATE = 7;
@@ -67,6 +86,16 @@ export class Enemy {
   reserve: number;
   mode: Mode = 'fight';
   speedNow = 0;
+  stance: Stance = 'walk';
+  /** 偷襲中（警戒 / 搜索時蹲走接近） */
+  sneaking = false;
+  /** 衝鋒計時（聽到換彈 / 看到治療）與推進計時（戰鬥中趁玩家換彈推進） */
+  rushT = 0;
+  pushT = 0;
+  /** 包抄路線（世界座標）；有值 = 正在繞路 */
+  flank: { route: THREE.Vector3[]; idx: number; t: number } | null = null;
+  /** 最近一次對聲音的反應（除錯與測試用） */
+  lastHear: { kind: NoiseKind; result: HearResult; t: number; gain: number; occluded: boolean } | null = null;
   /** 最近一次被攻擊者的位置 */
   killedAt = 0;
   dead = false;
@@ -112,6 +141,10 @@ export class Enemy {
   private coverT = 0;
   private coverCd = 0;
   private stepAccum = 0;
+  private prevState: AiState = 'patrol';
+  private rushRollAt = -1e9;
+  private healRolled = false;
+  private reloadStageE = 0;
   private sepV = new THREE.Vector3();
   private tmp = new THREE.Vector3();
   private tmp2 = new THREE.Vector3();
@@ -154,28 +187,54 @@ export class Enemy {
   get armorStat() { return this.def.armorId ? ARMOR_STATS[this.def.armorId] : null; }
 
   // ------------------------------------------------------------ 事件
-  /** 聽見玩家的腳步聲 */
-  hearFootstep(intensity: StepIntensity, surface: Surface, at: THREE.Vector3): boolean {
-    if (this.dead || this.brain.engaged) return false;
-    const radius = footstepHearRadius(intensity, surface, this.def.hearing);
-    const dist = this.pos.distanceTo(at);
-    if (dist > radius) return false;
-    const los = this.ctx.mover.los(this.eye, this.tmp.copy(at).setY(at.y + 1.0));
-    if (!canHear(dist, radius, los)) return false;
-    this.brain.hear(this.noisePoint(at, dist * 0.04));
-    return true;
+  private get rng(): () => number { return this.ctx.rng ?? Math.random; }
+  private get difficulty(): Difficulty { return this.ctx.difficulty ?? 2; }
+
+  /**
+   * 聽到一個聲音事件（玩家或其他真人發出的；NPC 彼此不聽）。
+   * 和玩家聽 NPC 用同一張距離表：先看在不在「聽得到的距離」內，再依牆壁遮擋與距離算實際音量，
+   * 最後依實際音量 × 聽力 × 難度聽覺倍率擲骰決定有沒有注意到。
+   *  - 已進入戰鬥的敵人不會被引走；但聽到換彈會趁機推進
+   *  - 聽到換彈且 25m 內：依難度與傾向的機率立刻衝向玩家
+   */
+  hearNoise(ev: NoiseEvent): HearResult {
+    if (this.dead || ev.source === this.id || isNpcSource(ev.source)) return 'ignored';
+    const mover = this.ctx.mover;
+    const heard = assessHearing(this.eye, ev, (a, b) => mover.los(this.tmp.set(a.x, a.y, a.z), this.tmp2.set(b.x, b.y, b.z)));
+    if (!heard.audible) return 'ignored';
+    const sustained = ev.kind === 'search' || ev.kind === 'evac';
+    const sens = this.def.hearing * DIFFICULTY[this.difficulty].hearing;
+    const result = this.react(ev, heard.dist, hearChance(heard.gain, sens, sustained), heard.dist);
+    this.lastHear = { kind: ev.kind, result, t: performance.now(), gain: +heard.gain.toFixed(3), occluded: heard.occluded };
+    return result;
   }
 
-  hearShot(at: THREE.Vector3): boolean {
-    if (this.dead || this.brain.engaged) return false;
-    const radius = shotHearRadius(this.def.hearing);
-    const dist = this.pos.distanceTo(at);
-    if (dist > radius) return false;
-    const los = this.ctx.mover.los(this.eye, this.tmp.copy(at));
-    if (!canHear(dist, radius, los)) return false;
+  private react(ev: NoiseEvent, dist: number, chance: number, heardDist: number): HearResult {
+    if (this.rng() >= chance) return 'missed';
+    const at = this.tmp2.set(ev.position.x, ev.position.y, ev.position.z);
+    // 趁換彈衝過來（一次換彈只擲一次骰）
+    if (ev.kind === 'reload') {
+      const now = performance.now();
+      if (now - this.rushRollAt > 4000) {
+        this.rushRollAt = now;
+        if (shouldRush({ dist, difficulty: this.difficulty, def: this.def, rng: this.rng })) {
+          this.startRush(at);
+          return 'rush';
+        }
+      }
+    }
+    if (this.brain.engaged) return 'heard';
     // 槍聲能判斷方向，但距離越遠誤差越大
-    this.brain.hear(this.noisePoint(at, dist * 0.12));
-    return true;
+    this.brain.hear(this.noisePoint(at, heardDist * (ev.kind === 'shot' ? 0.12 : 0.05)));
+    return 'heard';
+  }
+
+  /** 衝鋒：未交戰就直接追擊（以聲源為最後已知位置）；交戰中就推進到更近 */
+  private startRush(at: THREE.Vector3): void {
+    if (this.brain.engaged) { this.pushT = 4; return; }
+    this.brain.rush(this.noisePoint(at, 1));
+    this.rushT = 8;
+    this.sneaking = false;
   }
 
   private noisePoint(at: THREE.Vector3, err: number): THREE.Vector3 {
@@ -229,10 +288,9 @@ export class Enemy {
       if (now - last < cooldown) return;
       if (kind === 'hurt') this.voiceAt.hurt = now; else this.voiceAt.alert = now;
     }
-    this.ctx.bus.emit('enemyVoice', { kind, position: this.tmpV.set(this.pos.x, this.pos.y + this.def.height * 0.85, this.pos.z).clone(), enemyId: this.id });
+    this.ctx.bus.emit('noise', { kind, position: { x: this.pos.x, y: this.pos.y + this.def.height * 0.85, z: this.pos.z }, source: this.id, surface: this.ctx.surfaceAt(this.pos) });
   }
   private voiceAt = { hurt: -9, alert: -9 };
-  private tmpV = new THREE.Vector3();
 
   // ------------------------------------------------------------ 更新
   /** 由 EnemyManager 每個固定步長呼叫；依 LOD 累積到 interval 才真正執行 */
@@ -275,7 +333,7 @@ export class Enemy {
             this.canSee = true;
             const ang = Math.abs(normAngle(Math.atan2(dx, dz) - this.facing));
             const light = ctx.lightAt(pl.feet);
-            this.gain = brain.engaged ? 1 : visionGain(def.reaction, range, {
+            this.gain = brain.engaged ? 1 : visionGain(def.reaction * DIFFICULTY[this.difficulty].reaction, range, {
               dist, offAxis: Math.min(1, ang / ((def.fov * Math.PI) / 360)),
               crouching: pl.crouching, sprinting: pl.sprinting, moving: pl.moving, light,
             });
@@ -285,21 +343,45 @@ export class Enemy {
       }
     }
 
+    // 看到玩家在治療（25m 內）：趁機衝過來（每次治療只擲一次骰）
+    if (!pl.healing) this.healRolled = false;
+    else if (!this.healRolled && this.canSee && dist <= RUSH_RANGE) {
+      this.healRolled = true;
+      if (shouldRush({ dist, difficulty: this.difficulty, def, rng: this.rng })) {
+        this.startRush(this.tmp2.copy(pl.feet));
+        this.lastHear = { kind: 'heal', result: 'rush', t: performance.now(), gain: 1, occluded: false };
+      }
+    }
+
     brain.update(dt, {
       canSee: this.canSee, gain: this.gain, targetPos: pl.feet, dist,
       engageRange: def.preferRange[1] + 8, arrived: this.arrived,
     });
     this.afterSpotted();
 
+    // 進入警戒 / 搜索時決定要不要蹲走偷襲（每次進入擲一次骰）
+    if (brain.state !== this.prevState) {
+      this.prevState = brain.state;
+      this.sneaking = (brain.state === 'alert' || brain.state === 'search') && shouldSneak({ difficulty: this.difficulty, def, rng: this.rng });
+      if (brain.state === 'dead') this.flank = null;
+    }
+    this.rushT = Math.max(0, this.rushT - dt);
+    this.pushT = Math.max(0, this.pushT - dt);
+
     // ---- 行為 ----
     this.arrived = false;
+    this.stance = 'walk';
     let move = 0;
-    switch (brain.state) {
-      case 'patrol': move = this.doPatrol(dt); break;
-      case 'alert': move = this.doAlert(dt); break;
-      case 'chase': move = this.doChase(dt); break;
-      case 'attack': move = this.doAttack(dt, dist); break;
-      case 'search': move = this.doSearch(dt); break;
+    if (this.flank && brain.engaged) move = this.doFlank(dt, dist);
+    else {
+      if (this.flank) this.flank = null;
+      switch (brain.state) {
+        case 'patrol': move = this.doPatrol(dt); break;
+        case 'alert': move = this.doAlert(dt); break;
+        case 'chase': move = this.doChase(dt); break;
+        case 'attack': move = this.doAttack(dt, dist); break;
+        case 'search': move = this.doSearch(dt); break;
+      }
     }
     this.speedNow = move / dt;
     this.footsteps(move);
@@ -345,6 +427,7 @@ export class Enemy {
       this.turnTo(want, dt, 2.2);
       return 0;
     }
+    this.stanceSneak(Math.hypot(dx, dz));
     const moved = this.goTo(b.investigate, this.def.walkSpeed * 1.2, dt, 1.5);
     if (this.arrived) {
       this.lookT -= dt;
@@ -385,8 +468,30 @@ export class Enemy {
       }
       this.searchPoint = (cands.length ? nav.nodes[cands[Math.floor(Math.random() * cands.length)]] : center).clone();
     }
+    this.stanceSneak(this.pos.distanceTo(this.brain.lastKnown));
     const moved = this.goTo(this.searchPoint, this.def.walkSpeed * 1.25, dt, 1.2);
     if (this.arrived) { this.searchPoint = null; this.searchWait = 1.5 + Math.random() * 1.5; }
+    return moved;
+  }
+
+  /** 偷襲：離目標點近了才蹲走（遠的時候照常走，才不會慢到不像話） */
+  private stanceSneak(distToTarget: number): void {
+    this.stance = this.sneaking && distToTarget <= SNEAK_APPROACH ? 'crouch' : 'walk';
+  }
+
+  // ---- 行為：包抄（沿著另一條路線繞到玩家側面）----
+  private doFlank(dt: number, dist: number): number {
+    const f = this.flank!;
+    const pl = this.ctx.player;
+    f.t += dt;
+    this.brain.hold(); // 繞路時看不到目標不算失去目標
+    const seen = this.canSee && this.hasLos;
+    if (f.t > FLANK_MAX_TIME || f.idx >= f.route.length || (seen && dist < 14) || !pl.alive) { this.flank = null; return 0; }
+    // 離玩家還遠又沒被看到時蹲跑（8m 的腳步聲）；被看到或接近了就直接衝
+    this.stance = !seen && dist > 16 ? 'crouch_run' : 'walk';
+    const wp = f.route[f.idx];
+    const moved = this.goTo(wp, this.def.runSpeed, dt, 1.6);
+    if (this.arrived) { f.idx++; this.arrived = false; }
     return moved;
   }
 
@@ -401,13 +506,17 @@ export class Enemy {
     // 換彈
     if (this.reloadLeft > 0) {
       this.reloadLeft -= dt;
+      const pr = 1 - Math.max(0, this.reloadLeft) / this.stats.reloadTime;
+      if (this.reloadStageE < 1 && pr >= 0.42) { this.reloadStageE = 1; this.emitNoise('reload', { stage: 1 }); }
+      if (this.reloadStageE < 2 && pr >= 0.84) { this.reloadStageE = 2; this.emitNoise('reload', { stage: 2 }); }
       if (this.reloadLeft <= 0) {
         const n = Math.min(this.stats.magazine - this.mag, this.reserve);
         this.mag += n; this.reserve -= n;
       }
     } else if (this.mag <= 0 && this.reserve > 0) {
       this.reloadLeft = this.stats.reloadTime;
-      ctx.bus.emit('weaponAction', { weaponId: this.weaponId, action: 'reload', position: this.pos.clone().setY(this.pos.y + 1.2) });
+      this.reloadStageE = 0;
+      this.emitNoise('reload', { stage: 0 });
       if (def.coverSeeker) this.beginCover();
     }
     // 掩護者血量低時也找掩護
@@ -436,7 +545,10 @@ export class Enemy {
     this.strafeT -= dt;
     if (this.strafeT <= 0) { this.strafeT = 1 + Math.random() * 1.6; this.strafeDir = Math.random() < 0.5 ? -this.strafeDir : this.strafeDir; }
     const toward = this.tmp.set(tx, 0, tz).normalize();
-    if (dist > pmax || (def.rush && dist > pmin + 1)) {
+    if (this.pushT > 0 && dist > Math.max(3, pmin * 0.6)) {
+      // 趁玩家換彈：推進到更近
+      moved = this.goTo(pl.feet, def.runSpeed, dt, Math.max(3, pmin * 0.6));
+    } else if (dist > pmax || (def.rush && dist > pmin + 1)) {
       moved = this.goTo(pl.feet, def.rush ? def.runSpeed : def.walkSpeed * 1.2, dt, pmin);
     } else if (dist < pmin) {
       moved = this.walk(-toward.x, -toward.z, def.walkSpeed * 0.8, dt);
@@ -495,10 +607,13 @@ export class Enemy {
     const muzzle = this.muzzle(new THREE.Vector3());
     const aim = new THREE.Vector3(pl.feet.x, pl.feet.y + (pl.crouching ? 0.6 : 1.15), pl.feet.z);
     const dir = new THREE.Vector3().subVectors(aim, muzzle).normalize();
-    ctx.bus.emit('shot', { weaponId: this.weaponId, position: muzzle.clone(), direction: dir.clone(), shooter: this.id, surface: ctx.surfaceAt(this.pos) });
+    ctx.bus.emit('noise', {
+      kind: 'shot', position: { x: muzzle.x, y: muzzle.y, z: muzzle.z }, source: this.id, weaponId: this.weaponId,
+      direction: { x: dir.x, y: dir.y, z: dir.z }, surface: ctx.surfaceAt(this.pos),
+    });
     ctx.fx.muzzleFlash(muzzle, 0.5);
 
-    let p = accuracyAt(def.accuracy, dist);
+    let p = scaledAccuracy(accuracyAt(def.accuracy, dist), this.difficulty);
     if (pl.sprinting) p *= 0.7; else if (pl.moving) p *= 0.85;
     if (pl.crouching) p *= 0.85;
     if (this.speedNow > 1) p *= 0.85;
@@ -587,9 +702,10 @@ export class Enemy {
     if (wl < 0.05) return 0;
     wx /= wl; wz /= wl;
     this.turnTo(Math.atan2(wx, wz), dt, TURN_RATE);
-    const moved = this.walk(wx, wz, speed, dt);
+    const sp = this.stance === 'crouch' ? this.def.walkSpeed * CROUCH_SPEED_K : this.stance === 'crouch_run' ? this.def.walkSpeed * CROUCH_RUN_SPEED_K : speed;
+    const moved = this.walk(wx, wz, sp, dt);
     // 卡住偵測
-    if (moved < speed * dt * 0.25) {
+    if (moved < sp * dt * 0.25) {
       this.stuckT += dt;
       if (this.stuckT > 0.7) {
         this.stuckT = 0;
@@ -623,14 +739,21 @@ export class Enemy {
     if (mover.los(lastP, b)) this.path.push(goal.clone());
   }
 
+  /** 聲音事件（敵人的動作聲）：腳步在腳底，其餘在胸口高度 */
+  private emitNoise(kind: NoiseKind, extra: Partial<NoiseEvent> = {}): void {
+    this.ctx.bus.emit('noise', { kind, position: { x: this.pos.x, y: this.pos.y + 1.2, z: this.pos.z }, source: this.id, weaponId: this.weaponId, ...extra });
+  }
+
+  /** 腳步：巡邏走路、追擊衝刺各發各的 noise；偷襲蹲走完全無聲；蹲跑 8m */
   private footsteps(moved: number): void {
-    if (moved < 0.001 || this.distToPlayer > 40) { return; }
-    const stride = this.speedNow > this.def.walkSpeed * 1.6 ? 1.7 : 2.0;
+    if (moved < 0.001 || this.distToPlayer > 58 || this.stance === 'crouch') return;
+    const sprint = this.stance === 'walk' && this.speedNow > this.def.walkSpeed * 1.6;
+    const stride = sprint ? 1.7 : this.stance === 'crouch_run' ? 2.2 : 2.0;
     this.stepAccum += moved;
     if (this.stepAccum >= stride) {
       this.stepAccum -= stride;
-      const intensity: StepIntensity = this.speedNow > this.def.walkSpeed * 1.6 ? 'sprint' : 'walk';
-      this.ctx.bus.emit('footstep', { surface: this.ctx.surfaceAt(this.pos), intensity, position: this.pos.clone(), source: this.id });
+      const kind: NoiseKind = this.stance === 'crouch_run' ? 'footstep_crouch_run' : sprint ? 'footstep_sprint' : 'footstep_walk';
+      this.ctx.bus.emit('noise', { kind, position: { x: this.pos.x, y: this.pos.y, z: this.pos.z }, source: this.id, surface: this.ctx.surfaceAt(this.pos) });
     }
   }
 

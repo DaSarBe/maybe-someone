@@ -99,3 +99,14 @@
 .ctl-seg .seg-btn.on { background: rgba(53,225,255,.32); color: #fff; font-weight: 700; }
 .ctl-note { margin: 0; font-size: 12px; line-height: 1.5; opacity: .8; text-align: left !important; }
 .ctl-note.warn { color: #ffb3a0; opacity: 1; }
+
+/* 編輯器裡的聲音提示示意（準心周圍的三個弧形：白 / 紅 / 黃） */
+.le-root .le-inner > .nd-mock { position: absolute; left: 0; top: 0; width: 0; height: 0; }
+.le-root .nd-mock::after {
+  content: ''; position: absolute; left: -128px; top: -128px; width: 256px; height: 256px; border-radius: 50%;
+  border: 1px dashed rgba(255,255,255,.3); pointer-events: none;
+}
+.le-root .nd-mock i {
+  position: absolute; left: -128px; top: -128px; width: 256px; height: 256px; border-radius: 50%; box-sizing: border-box;
+  border: 8px solid transparent; border-top-color: var(--c, #fff); clip-path: polygon(34% 0, 66% 0, 66% 14%, 34% 14%); filter: drop-shadow(0 0 4px var(--c, #fff));
+}

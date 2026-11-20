@@ -426,6 +426,159 @@ const landThump: Recipe = {
   },
 };
 
+
+// ---------------------------------------------------------------- 動作音（聲音事件系統：缺素材的動作）
+/** 換彈第 1 段：卸下彈匣（卡榫「喀」+ 彈匣滑出摩擦 + 落到手上的悶響） */
+const magOut: Recipe = {
+  duration: 0.4, peak: 0.8, variants: 3,
+  build(b) {
+    b.burst({ type: 'bandpass', freq: jit(b, 2200), q: 4, peak: 0.9, attack: 0.0005, decay: 0.02 });
+    b.burst({ type: 'highpass', freq: 3200, peak: 0.4, attack: 0.0003, decay: 0.006 });
+    b.burst({ t: 0.04, type: 'bandpass', freq: 1500, freqEnd: 700, q: 2.5, peak: 0.3, attack: 0.02, decay: 0.12 });
+    b.tone({ t: 0.16, freq: jit(b, 210), freqEnd: 120, peak: 0.5, decay: 0.07 });
+    b.burst({ t: 0.16, type: 'bandpass', freq: jit(b, 1100), q: 2, peak: 0.45, attack: 0.001, decay: 0.05 });
+  },
+};
+
+/** 換彈第 2 段：插入彈匣（滑入 + 扎實的「喀嚓」卡入） */
+const magIn: Recipe = {
+  duration: 0.4, peak: 0.85, variants: 3,
+  build(b) {
+    b.burst({ type: 'bandpass', freq: 900, freqEnd: 1900, q: 2.5, peak: 0.3, attack: 0.025, decay: 0.1 });
+    b.burst({ t: 0.11, type: 'bandpass', freq: jit(b, 1700), q: 3.5, peak: 1, attack: 0.0005, decay: 0.03 });
+    b.tone({ t: 0.11, freq: jit(b, 260), freqEnd: 110, peak: 0.7, decay: 0.07 });
+    b.burst({ t: 0.11, type: 'highpass', freq: 3000, peak: 0.5, attack: 0.0003, decay: 0.01 });
+  },
+};
+
+/** 換彈第 3 段：拉槍機（後拉「嚓」+ 前送「喀」） */
+const boltRack: Recipe = {
+  duration: 0.5, peak: 0.85, variants: 3,
+  build(b) {
+    b.burst({ type: 'bandpass', freq: jit(b, 1300), q: 3, peak: 0.8, attack: 0.001, decay: 0.035 });
+    b.burst({ t: 0.02, type: 'bandpass', freq: 800, freqEnd: 2600, q: 2.5, peak: 0.25, attack: 0.015, decay: 0.1 });
+    b.burst({ t: 0.18, type: 'bandpass', freq: jit(b, 1800), q: 3, peak: 1, attack: 0.0005, decay: 0.03 });
+    b.burst({ t: 0.18, type: 'highpass', freq: 3200, peak: 0.5, attack: 0.0003, decay: 0.008 });
+    b.tone({ t: 0.18, freq: jit(b, 480), freqEnd: 180, peak: 0.45, decay: 0.05 });
+  },
+};
+
+/** 切換武器：收槍的槍帶摩擦 + 拔槍的金屬「叩」 */
+const weaponSwap: Recipe = {
+  duration: 0.5, peak: 0.8, variants: 3,
+  build(b) {
+    b.burst({ type: 'bandpass', freq: 1800, freqEnd: 900, q: 1.5, peak: 0.3, attack: 0.02, decay: 0.1 });
+    b.burst({ t: 0.1, type: 'bandpass', freq: jit(b, 1500), q: 4, peak: 0.7, attack: 0.0005, decay: 0.025 });
+    b.tone({ t: 0.1, freq: jit(b, 300), freqEnd: 140, peak: 0.5, decay: 0.06 });
+    b.burst({ t: 0.2, type: 'bandpass', freq: 1000, freqEnd: 2400, q: 2, peak: 0.25, attack: 0.02, decay: 0.1 });
+    b.burst({ t: 0.3, type: 'highpass', freq: 2800, peak: 0.55, attack: 0.0004, decay: 0.012 });
+    b.tone({ t: 0.3, freq: jit(b, 520), freqEnd: 260, peak: 0.4, decay: 0.05 });
+  },
+};
+
+/** 撕繃帶：魔鬼氈式的長撕裂聲 + 布料摩擦 */
+const healBandage: Recipe = {
+  duration: 0.9, peak: 0.7, variants: 3,
+  build(b) {
+    // 撕裂：快速幅度起伏的高頻雜訊
+    for (let i = 0; i < 14; i++) {
+      b.burst({ t: i * 0.028 + b.rng.range(0, 0.01), type: 'bandpass', freq: jit(b, 3800, 0.25), q: 1.2, peak: b.rng.range(0.4, 0.9), attack: 0.002, decay: 0.03 });
+    }
+    b.burst({ t: 0.42, type: 'bandpass', freq: 1400, freqEnd: 600, q: 0.9, peak: 0.35, attack: 0.05, decay: 0.3 });
+    b.burst({ t: 0.5, type: 'lowpass', freq: 1800, peak: 0.25, attack: 0.04, decay: 0.3 });
+  },
+};
+
+/** 注射：氣壓「噗嘶」+ 針頭的細小「喀」 */
+const healInject: Recipe = {
+  duration: 0.7, peak: 0.75, variants: 3,
+  build(b) {
+    b.burst({ type: 'bandpass', freq: jit(b, 2000), q: 5, peak: 0.6, attack: 0.001, decay: 0.02 });
+    b.burst({ t: 0.05, type: 'highpass', freq: 4500, freqEnd: 2500, peak: 0.55, attack: 0.012, decay: 0.28 });
+    b.tone({ t: 0.05, freq: jit(b, 110), freqEnd: 60, peak: 0.35, decay: 0.12 });
+    b.burst({ t: 0.38, type: 'bandpass', freq: jit(b, 1600), q: 4, peak: 0.35, attack: 0.001, decay: 0.03 });
+  },
+};
+
+/** 裝備護甲：魔鬼氈撕開 / 黏上 + 金屬扣「喀」 */
+const armorEquip: Recipe = {
+  duration: 0.8, peak: 0.8, variants: 3,
+  build(b) {
+    for (let i = 0; i < 9; i++) {
+      b.burst({ t: i * 0.024, type: 'bandpass', freq: jit(b, 3200, 0.25), q: 1.2, peak: b.rng.range(0.3, 0.7), attack: 0.002, decay: 0.026 });
+    }
+    b.burst({ t: 0.3, type: 'lowpass', freq: 1200, peak: 0.4, attack: 0.02, decay: 0.12 });
+    b.burst({ t: 0.5, type: 'bandpass', freq: jit(b, 1900), q: 5, peak: 0.9, attack: 0.0004, decay: 0.03 });
+    b.burst({ t: 0.5, type: 'highpass', freq: 3500, peak: 0.45, attack: 0.0003, decay: 0.01 });
+    b.tone({ t: 0.5, freq: jit(b, 620), freqEnd: 300, peak: 0.45, decay: 0.07 });
+    b.tone({ t: 0.5, freq: jit(b, 1850), peak: 0.15, decay: 0.12 });
+  },
+};
+
+/** 交易：數鈔票（紙張快速摩擦連拍）+ 最後的拍齊 */
+const tradeCash: Recipe = {
+  duration: 1.0, peak: 0.7, variants: 3,
+  build(b) {
+    let t = 0;
+    for (let i = 0; i < 11; i++) {
+      b.burst({ t, type: 'bandpass', freq: jit(b, 5200, 0.3), q: 1.6, peak: b.rng.range(0.35, 0.8), attack: 0.001, decay: b.rng.range(0.012, 0.022) });
+      b.burst({ t: t + 0.006, type: 'highpass', freq: 6500, peak: 0.25, attack: 0.0005, decay: 0.01 });
+      t += b.rng.range(0.045, 0.075);
+    }
+    b.burst({ t: t + 0.05, type: 'lowpass', freq: 1800, peak: 0.45, attack: 0.002, decay: 0.07 });
+    b.tone({ t: t + 0.05, freq: 140, freqEnd: 80, peak: 0.3, decay: 0.07 });
+  },
+};
+
+/** 倒地聲：衣料摩擦 + 沉重的撲通（再疊地面材質的腳步聲） */
+const bodyFall: Recipe = {
+  duration: 0.7, peak: 0.85, variants: 3,
+  build(b) {
+    b.burst({ type: 'bandpass', freq: jit(b, 900), freqEnd: 400, q: 0.9, peak: 0.45, attack: 0.03, decay: 0.15 });
+    b.tone({ t: 0.12, freq: jit(b, 95), freqEnd: 38, peak: 1, attack: 0.004, decay: 0.24 });
+    b.burst({ t: 0.12, type: 'lowpass', freq: 450, q: 0.7, peak: 0.9, attack: 0.004, decay: 0.16 });
+    b.burst({ t: 0.13, type: 'bandpass', freq: jit(b, 1200), q: 1, peak: 0.35, attack: 0.002, decay: 0.05 });
+    b.burst({ t: 0.3, type: 'bandpass', freq: 700, q: 1, peak: 0.12, attack: 0.02, decay: 0.2 });
+  },
+};
+
+/** 時光機啟動的持續嗡嗡聲（可循環）：低頻基音 + 緩慢調變的和聲 + 高頻電流感 */
+const evacHum: Recipe = {
+  duration: 4, peak: 0.55, variants: 1, loop: true,
+  build(b) {
+    // 頻率取整數週期（4 秒內整數個週期），循環才不會有接縫
+    for (const [f, a] of [[55, 0.55], [110, 0.4], [165, 0.22], [275, 0.12]] as const) {
+      const o = b.ctx.createOscillator();
+      o.frequency.value = f;
+      const og = b.ctx.createGain();
+      og.gain.value = a;
+      o.connect(og).connect(b.out);
+      o.start(0);
+    }
+    const mod = b.ctx.createOscillator();
+    mod.frequency.value = 2; // 4 秒 8 個週期
+    const depth = b.ctx.createGain();
+    depth.gain.value = 0.18;
+    const g = b.ctx.createGain();
+    g.gain.value = 0.55;
+    const osc = b.ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.value = 220;
+    const lp = b.ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 700;
+    mod.connect(depth).connect(g.gain);
+    osc.connect(lp).connect(g).connect(b.out);
+    mod.start(0); osc.start(0);
+    const src = b.ctx.createBufferSource();
+    src.buffer = noiseOf(b);
+    const hp = b.ctx.createBiquadFilter();
+    hp.type = 'bandpass'; hp.frequency.value = 3400; hp.Q.value = 1.5;
+    const ng = b.ctx.createGain(); ng.gain.value = 0.04;
+    src.connect(hp).connect(ng).connect(b.out);
+    src.start(0);
+  },
+};
+
 // ---------------------------------------------------------------- 環境音（可循環）
 const harborWind: Recipe = {
   duration: 8, peak: 0.5, variants: 1, loop: true,
@@ -502,6 +655,16 @@ export const RECIPES: Record<string, Recipe> = {
   'impacts.flesh': fleshImpact,
   'impacts.generic': genericImpact,
   'land.thump': landThump,
+  'weapons.mag_out': magOut,
+  'weapons.mag_in': magIn,
+  'weapons.bolt_rack': boltRack,
+  'weapons.swap': weaponSwap,
+  'sfx.heal_bandage': healBandage,
+  'sfx.heal_inject': healInject,
+  'sfx.armor_equip': armorEquip,
+  'sfx.trade_cash': tradeCash,
+  'impacts.body_fall': bodyFall,
+  'sfx.evac_hum': evacHum,
   'ambient.harbor_wind': harborWind,
   'ambient.indoor_room_tone': roomTone,
 };

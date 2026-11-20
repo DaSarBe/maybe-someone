@@ -1,12 +1,13 @@
 import type * as THREE from 'three';
-import type { StepIntensity } from '../core/EventBus';
+import type { StepIntensity } from '../data/noise';
 import type { Surface } from '../world/Surface';
-import type { SoundPlayer } from './types';
+import type { PlayOpts, SoundPlayer } from './types';
 
 /** 腳步強度 → 音量 */
-export const STEP_VOLUME: Record<StepIntensity, number> = { crouch: 0.35, walk: 0.7, sprint: 1.0 };
+export const STEP_VOLUME: Record<StepIntensity, number> = { crouch: 0.35, crouch_run: 0.45, walk: 0.7, sprint: 1.0 };
 /** 蹲下時的低通截止頻率（Hz），讓聲音更悶；其他強度不加 */
 const CROUCH_LOWPASS = 1600;
+const CROUCH_RUN_LOWPASS = 3000;
 
 const PITCH_JITTER = 0.06;  // ±6%
 const VOLUME_JITTER = 0.10; // ±10%
@@ -54,39 +55,41 @@ const rand = (amount: number): number => 1 + (Math.random() * 2 - 1) * amount;
 export class SurfaceSounds {
   constructor(private player: SoundPlayer) {}
 
-  footstep(surface: Surface, intensity: StepIntensity, position?: THREE.Vector3): void {
+  /** extra：聲音事件的空間參數（位置、range、遮擋）；本機玩家自己的腳步沒有 */
+  footstep(surface: Surface, intensity: StepIntensity, extra: Partial<PlayOpts> = {}): void {
+    const lp = intensity === 'crouch' ? CROUCH_LOWPASS : intensity === 'crouch_run' ? CROUCH_RUN_LOWPASS : undefined;
     this.player.play({
       key: FOOTSTEP_BANKS[surface],
       volume: STEP_VOLUME[intensity] * rand(VOLUME_JITTER),
       rate: rand(PITCH_JITTER),
-      lowpass: intensity === 'crouch' ? CROUCH_LOWPASS : undefined,
-      position,
       wet: 0.55,
       refDistance: 2,
-      tag: `step ${surface}/${intensity}`,
+      tag: `step ${surface}/${intensity}${extra.position ? '' : ' own'}`,
+      ...extra,
+      lowpass: lp === undefined ? extra.lowpass : extra.lowpass === undefined ? lp : Math.min(lp, extra.lowpass),
     });
   }
 
   /** 落地：fallSpeed 越大越大聲、音高越低；重落地多疊一聲低沉悶響 */
-  land(surface: Surface, fallSpeed: number, position?: THREE.Vector3): void {
+  land(surface: Surface, fallSpeed: number, extra: Partial<PlayOpts> = {}): void {
     const t = Math.min(1, Math.max(0, (fallSpeed - 2) / 9));
     this.player.play({
       key: FOOTSTEP_BANKS[surface],
       volume: (0.55 + 0.45 * t) * rand(VOLUME_JITTER),
       rate: (1 - 0.2 * t) * rand(PITCH_JITTER),
-      lowpass: 4000 - 2200 * t,
-      position,
       wet: 0.6,
       refDistance: 2,
       tag: `land ${surface} v=${fallSpeed.toFixed(1)}`,
+      ...extra,
+      lowpass: Math.min(4000 - 2200 * t, extra.lowpass ?? Infinity),
     });
     if (fallSpeed > 5.5) {
       const h = Math.min(1, (fallSpeed - 5.5) / 6);
       this.player.play({
+        ...extra,
         key: 'land.thump',
         volume: (0.4 + 0.6 * h) * rand(VOLUME_JITTER),
         rate: (1 - 0.15 * h) * rand(PITCH_JITTER),
-        position,
         wet: 0.7,
         refDistance: 2,
         tag: 'land thump',

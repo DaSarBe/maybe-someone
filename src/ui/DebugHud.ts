@@ -25,12 +25,9 @@ export class DebugHud {
     this.log.className = 'dbg-log' + (touch ? ' touch' : '');
     parent.append(this.stats, this.log);
     this.unsubs.push(
-      bus.on('footstep', (e) => this.push(`step ${e.surface} (${e.intensity})`)),
-      bus.on('land', (e) => this.push(`LAND ${e.surface} v=${e.fallSpeed.toFixed(1)}`)),
+      bus.on('noise', (e) => this.push(`${e.source === 'player' ? '' : e.source + ' '}${e.kind}${e.surface ? ' ' + e.surface : ''}${e.weaponId ? ' ' + e.weaponId : ''}`)),
       bus.on('reverbZoneChanged', (e) => this.push(`zone -> ${e.type}`)),
-      bus.on('shot', (e) => this.push(`SHOT ${e.weaponId}`)),
       bus.on('impact', (e) => this.push(`impact ${e.surface}`)),
-      bus.on('weaponAction', (e) => this.push(`${e.action} ${e.weaponId}`)),
     );
   }
 

@@ -94,6 +94,19 @@ export class EnemyBrain {
     this.enter('chase');
   }
 
+  /** 聽到玩家的破綻（換彈、治療）直接衝過去：不經過警戒，立刻進入追擊並以聲源為最後已知位置 */
+  rush(pos: THREE.Vector3): boolean {
+    if (this.state === 'dead' || this.engaged) return false;
+    this.lastKnown.copy(pos);
+    this.hasLastKnown = true;
+    this.awareness = 1;
+    this.enter('chase');
+    return true;
+  }
+
+  /** 包抄中：繞路時看不到目標不算「失去目標」 */
+  hold(): void { this.lostTime = 0; }
+
   kill(): void {
     this.enter('dead');
     this.awareness = 0;

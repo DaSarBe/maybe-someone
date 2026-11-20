@@ -7,12 +7,17 @@ import { MapAmbienceRunner, type AmbienceHost } from './MapAmbience';
 import type { MapAmbience } from '../world/RaidMap';
 import type { Surface } from '../world/Surface';
 import { ReverbSystem, ZONE_PARAMS } from './ReverbZones';
+import { assessHearing, type Heard, type LineOfSight } from './Hearing';
+import {
+  SUSTAINED_TIMEOUT, SUSTAINED_UPDATE, REF_DISTANCE, distanceGain, isSustained, noiseRange,
+  type NoiseEvent, type StepIntensity, type Vec3,
+} from '../data/noise';
 import { RECIPES, renderBank } from './Synth';
 import {
   detectPrimingShift, GROUP_CATEGORIES, groupByKey, parseSpriteManifest, pickSpriteFormat, sliceClips, SPRITE_GROUPS,
   type SpriteFormat, type SpriteGroupId, type SpriteManifest,
 } from './sprites';
-import { SurfaceSounds } from './SurfaceSounds';
+import { FOOTSTEP_BANKS, SurfaceSounds } from './SurfaceSounds';
 import type { BankSource, PlayOpts, PlayRecord, SoundPlayer } from './types';
 
 /** 同時發聲的上限（手機效能）；超過就停掉最舊、最小聲的 */
@@ -30,6 +35,29 @@ interface Bank {
   buffers: AudioBuffer[];
   names: string[];
   source: BankSource;
+}
+
+interface Loop {
+  key: string;
+  src: AudioBufferSourceNode;
+  gain: GainNode;
+  lp: BiquadFilterNode;
+  panner: PannerNode | null;
+  ev: NoiseEvent;
+  /** ctx.currentTime：最後一次收到心跳 */
+  lastBeat: number;
+}
+
+export interface NoiseLogEntry {
+  t: number;
+  kind: string;
+  source: string;
+  dist: number;
+  range: number;
+  gain: number;
+  occluded: boolean;
+  vertical: boolean;
+  played: boolean;
 }
 
 interface Voice {
@@ -66,6 +94,7 @@ const pageLoaded = (): Promise<void> =>
 /** 音量滑桿 0..1 → 增益（平方曲線，比較貼近聽感） */
 const toGain = (v: number): number => v * v;
 const jitter = (amt: number): number => 1 + (Math.random() * 2 - 1) * amt;
+const minDefined = (a?: number, b?: number): number | undefined => (a === undefined ? b : b === undefined ? a : Math.min(a, b));
 
 interface ShotLayer { key: string; rate: number; volume: number; lowpass?: number; highshelf?: number }
 /**
@@ -152,6 +181,15 @@ export class AudioManager implements SoundPlayer {
   private progressDone = new Set<string>();
   private progressListeners = new Set<(p: number) => void>();
   private listenerPos = new THREE.Vector3();
+  private listenerFwd = new THREE.Vector3(0, 0, -1);
+  private listenerRight = new THREE.Vector3(1, 0, 0);
+  private occluder: LineOfSight | null = null;
+  private heardListeners = new Set<(e: NoiseEvent, h: Heard) => void>();
+  private loops = new Map<string, Loop>();
+  private lastSustainedUpdate = 0;
+  /** 最近的聲音事件與判定結果（除錯與測試用） */
+  readonly noiseLog: NoiseLogEntry[] = [];
+  private tmpRel = new THREE.Vector3();
   private tmpDir = new THREE.Vector3();
   private tmpUp = new THREE.Vector3();
   private gestureHandler = () => this.unlock();
@@ -164,12 +202,8 @@ export class AudioManager implements SoundPlayer {
     this.decodeCtx = new OAC(1, 1, DECODE_RATE);
     void this.loadAll();
 
-    bus.on('footstep', (e) => this.surfaceSounds.footstep(e.surface, e.intensity, e.position));
-    bus.on('land', (e) => this.surfaceSounds.land(e.surface, e.fallSpeed));
+    bus.on('noise', (e) => this.onNoise(e));
     bus.on('impact', (e) => this.surfaceSounds.impact(e.surface, e.position, e.flesh));
-    bus.on('shot', (e) => { this.playShot(e.weaponId, e.position); this.playCasing(e.weaponId, e.surface ?? 'concrete', e.position, e.direction, !!e.shooter); });
-    bus.on('weaponAction', (e) => this.playWeaponAction(e.weaponId, e.action, e.position));
-    bus.on('enemyVoice', (e) => this.playEnemyVoice(e.kind, e.position, e.enemyId));
     bus.on('bulletFlyby', (e) => this.playFlyby(e.position, e.distance));
     bus.on('playerHurt', (e) => this.play({ key: e.armor ? 'impacts.player_armor' : 'impacts.player_flesh', volume: e.armor ? 0.95 : 0.9, rate: jitter(0.06), tag: e.armor ? 'player hit armor' : 'player hit flesh' }));
     bus.on('enemyHit', (e) => this.playHitMarker(e.zone, e.killed));
@@ -453,14 +487,16 @@ export class AudioManager implements SoundPlayer {
     this.zones = zones;
   }
 
-  /** 每個畫面呼叫：讓 listener 跟著相機 */
+  /** 每個畫面呼叫：讓 listener 跟著相機（沒有 AudioContext 時仍會更新位置：聲音視覺提示與敵人聽覺要用） */
   updateListener(camera: THREE.Camera): void {
-    const ctx = this.ctx;
-    if (!ctx) return;
     camera.updateWorldMatrix(true, false);
     this.listenerPos.setFromMatrixPosition(camera.matrixWorld);
     const fwd = this.tmpDir.set(0, 0, -1).transformDirection(camera.matrixWorld);
     const up = this.tmpUp.set(0, 1, 0).transformDirection(camera.matrixWorld);
+    this.listenerFwd.copy(fwd);
+    this.listenerRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+    const ctx = this.ctx;
+    if (!ctx) return;
     const l = ctx.listener;
     if (l.positionX) {
       l.positionX.value = this.listenerPos.x; l.positionY.value = this.listenerPos.y; l.positionZ.value = this.listenerPos.z;
@@ -470,6 +506,19 @@ export class AudioManager implements SoundPlayer {
       (l as unknown as { setPosition(x: number, y: number, z: number): void }).setPosition(this.listenerPos.x, this.listenerPos.y, this.listenerPos.z);
       (l as unknown as { setOrientation(...a: number[]): void }).setOrientation(fwd.x, fwd.y, fwd.z, up.x, up.y, up.z);
     }
+    this.updateSustained(ctx.currentTime);
+  }
+
+  /** 聽者（耳朵）位置：聲音視覺提示與敵人聽覺的參考 */
+  get ear(): Vec3 { return this.listenerPos; }
+
+  /** 設定牆壁遮擋判定（RaidScene 用 Octree raycast 提供）；null = 不做遮擋 */
+  setOccluder(fn: LineOfSight | null): void { this.occluder = fn; }
+
+  /** 訂閱「聽得到的」聲音（其他人發出、已通過距離與遮擋判定）；聲音視覺提示用 */
+  onHeard(fn: (e: NoiseEvent, h: Heard) => void): () => void {
+    this.heardListeners.add(fn);
+    return () => { this.heardListeners.delete(fn); };
   }
 
   setVolume(name: keyof AudioSettings, v: number): void {
@@ -484,35 +533,203 @@ export class AudioManager implements SoundPlayer {
     this.play({ key: `ui.${name}`, volume, group: 'ui', tag: `ui ${name}` });
   }
 
+  // ------------------------------------------------------------ 聲音事件（noise）
+  /**
+   * 所有「動作的聲音」都從這裡進來。本機玩家（source = 'player'）的聲音是非定位的；
+   * 其他人的聲音用 HRTF 定位，音量依 data/noise.ts 的距離曲線衰減（超過距離完全無聲），
+   * 並依牆壁遮擋（Octree raycast）加低通與降音量、依上下樓層加悶與回音。
+   */
+  private onNoise(e: NoiseEvent): void {
+    const own = e.source === 'player';
+    const range = noiseRange(e);
+    if (range <= 0) return; // 蹲走：完全無聲
+    let heard: Heard | null = null;
+    if (!own) {
+      heard = assessHearing(this.listenerPos, e, this.occluder);
+      this.logNoise(e, heard, heard.audible);
+      if (!heard.audible) return;
+      for (const fn of this.heardListeners) fn(e, heard);
+    }
+    if (isSustained(e.kind)) { this.beatLoop(e, own, heard); return; }
+    this.playNoise(e, own, heard);
+  }
+
+  private logNoise(e: NoiseEvent, h: Heard, played: boolean): void {
+    this.noiseLog.push({ t: +(this.ctx?.currentTime ?? 0).toFixed(3), kind: e.kind, source: e.source, dist: +h.dist.toFixed(2), range: +h.range.toFixed(1), gain: +h.gain.toFixed(3), occluded: h.occluded, vertical: h.vertical, played });
+    if (this.noiseLog.length > 60) this.noiseLog.shift();
+  }
+
+  /** 其他人的聲音：定位、距離衰減、遮擋 */
+  private spatial(e: NoiseEvent, h: Heard | null): Partial<PlayOpts> {
+    if (!h) return {};
+    return {
+      position: new THREE.Vector3(e.position.x, e.position.y, e.position.z),
+      range: h.range, gainMul: h.extraGain, lowpass: h.lowpass ?? undefined, wetBoost: h.wetBoost,
+      sourceZone: findReverbZone(this.zones, e.position as THREE.Vector3)?.type ?? 'outdoor', refDistance: REF_DISTANCE,
+    };
+  }
+
+  private playNoise(e: NoiseEvent, own: boolean, h: Heard | null): void {
+    const sp = this.spatial(e, h);
+    const pos = sp.position;
+    const tag = (s: string) => `${s} ${own ? 'own' : e.source}`;
+    switch (e.kind) {
+      case 'footstep_sprint': case 'footstep_walk': case 'footstep_crouch_run': case 'footstep_crouch':
+        this.surfaceSounds.footstep(e.surface ?? 'concrete', e.kind.slice(9) as StepIntensity, sp);
+        return;
+      case 'land':
+        this.surfaceSounds.land(e.surface ?? 'concrete', e.fallSpeed ?? 4, sp);
+        return;
+      case 'shot':
+        this.playShot(e, own, sp);
+        return;
+      case 'reload': {
+        const stage = e.stage ?? 0;
+        const key = ['weapons.mag_out', 'weapons.mag_in', 'weapons.bolt_rack'][stage];
+        this.play({ ...sp, key, volume: (stage === 2 ? 0.8 : 0.7) * jitter(0.06), rate: jitter(0.04), wet: 0.5, tag: tag(`reload${stage + 1}/3 ${e.weaponId ?? ''}`) });
+        return;
+      }
+      case 'weapon_swap':
+        this.play({ ...sp, key: 'weapons.swap', volume: 0.65 * jitter(0.06), rate: jitter(0.04), wet: 0.5, tag: tag('weapon swap') });
+        return;
+      case 'dry_fire':
+        this.play({ ...sp, key: 'weapons.dry_fire', volume: 0.8 * jitter(0.06), rate: jitter(0.03), wet: 0.5, tag: tag(`dry_fire ${e.weaponId ?? ''}`) });
+        return;
+      case 'pump':
+        this.play({ ...sp, key: 'weapons.shotgun_pump', volume: 0.85 * jitter(0.06), rate: jitter(0.04), wet: 0.5, tag: tag('pump') });
+        return;
+      case 'heal':
+        this.play({ ...sp, key: e.item === 'bandage' ? 'sfx.heal_bandage' : 'sfx.heal_inject', volume: 0.65 * jitter(0.05), rate: jitter(0.03), wet: 0.4, tag: tag(`heal ${e.item ?? ''}`) });
+        return;
+      case 'item_pickup': case 'item_drop':
+        if (own) return; // 本機玩家的撿起 / 丟下由 UI 音效處理
+        this.play({ ...sp, key: e.kind === 'item_pickup' ? 'ui.pickup' : 'ui.drop', group: 'sfx', volume: 0.6, wet: 0.4, tag: tag(e.kind) });
+        return;
+      case 'armor_equip':
+        this.play({ ...sp, key: 'sfx.armor_equip', volume: 0.7 * jitter(0.05), rate: jitter(0.03), wet: 0.4, tag: tag('armor equip') });
+        return;
+      case 'trade':
+        this.play({ ...sp, key: 'sfx.trade_cash', volume: 0.6 * jitter(0.05), rate: jitter(0.03), wet: 0.3, tag: tag('trade') });
+        return;
+      case 'hurt': case 'death': case 'alert':
+        if (own || !pos) return;
+        this.playEnemyVoice(e.kind, e.source, sp);
+        if (e.kind === 'death') {
+          // 倒地聲：衣料與撲通 + 地面材質的聲音
+          const at = pos.clone();
+          this.play({ ...sp, position: at, key: 'impacts.body_fall', volume: 0.9, delay: 0.32, wet: 0.5, tag: tag('body fall') });
+          const surf = e.surface ?? 'concrete';
+          this.play({ ...sp, position: at, key: FOOTSTEP_BANKS[surf], volume: 0.7, rate: 0.7, delay: 0.36, wet: 0.5, tag: tag(`body fall ${surf}`) });
+        }
+        return;
+      default:
+        return;
+    }
+  }
+
+  /** 持續型聲音（搜刮、撤離嗡嗡聲）：每次心跳更新位置並續命；啟動時算一次遮擋，之後每 0.25 秒更新 */
+  private beatLoop(e: NoiseEvent, own: boolean, h: Heard | null): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== 'running' || !this.reverb) return;
+    const id = `${e.source}:${e.kind}`;
+    const live = this.loops.get(id);
+    if (live) { live.ev = e; live.lastBeat = ctx.currentTime; return; }
+    const key = e.kind === 'evac' ? 'sfx.evac_hum' : 'sfx.search_rummage';
+    const buf = this.banks.get(key)?.buffers[0];
+    if (!buf) return;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 22000;
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    src.connect(lp).connect(gain);
+    let panner: PannerNode | null = null;
+    if (own) gain.connect(this.sfxDry);
+    else {
+      panner = ctx.createPanner();
+      panner.panningModel = 'HRTF';
+      panner.distanceModel = 'inverse';
+      panner.rolloffFactor = 0; // 距離衰減由 gain 自己算（和 AI、視覺提示同一條曲線）
+      gain.connect(panner).connect(this.sfxDry);
+    }
+    src.start(0, Math.random() * buf.duration);
+    const loop: Loop = { key, src, gain, lp, panner, ev: e, lastBeat: ctx.currentTime };
+    this.loops.set(id, loop);
+    this.applyLoop(loop, own ? null : h, true);
+    this.record({
+      t: +ctx.currentTime.toFixed(3), key, source: this.banks.get(key)!.source, variant: 0, name: this.banks.get(key)!.names[0],
+      volume: 1, rate: 1, lowpass: null, positional: !own, wet: 0, zone: 'loop', tag: `loop start ${id}`,
+      ...(h ? { dist: +h.dist.toFixed(2), gain: +h.gain.toFixed(3), occluded: h.occluded, range: h.range } : {}),
+    });
+  }
+
+  private applyLoop(l: Loop, h: Heard | null, immediate = false): void {
+    const ctx = this.ctx!;
+    const base = l.ev.kind === 'evac' ? 0.55 : 0.6;
+    const t = ctx.currentTime;
+    const set = (p: AudioParam, v: number) => (immediate ? (p.value = v) : p.setTargetAtTime(v, t, 0.08));
+    if (!h) { set(l.gain.gain, base); return; }
+    set(l.gain.gain, base * h.gain);
+    set(l.lp.frequency, h.lowpass ?? 22000);
+    if (l.panner) {
+      const p = l.ev.position;
+      if (l.panner.positionX) { l.panner.positionX.value = p.x; l.panner.positionY.value = p.y; l.panner.positionZ.value = p.z; }
+      else (l.panner as unknown as { setPosition(x: number, y: number, z: number): void }).setPosition(p.x, p.y, p.z);
+    }
+  }
+
+  /** 每個畫面呼叫：持續型聲音每 SUSTAINED_UPDATE 秒重新評估遮擋 / 音量；超過 SUSTAINED_TIMEOUT 沒心跳就淡出停止 */
+  private updateSustained(now: number): void {
+    if (this.loops.size === 0 || now - this.lastSustainedUpdate < SUSTAINED_UPDATE) return;
+    this.lastSustainedUpdate = now;
+    for (const [id, l] of this.loops) {
+      if (now - l.lastBeat > SUSTAINED_TIMEOUT) {
+        l.gain.gain.setTargetAtTime(0, now, 0.06);
+        try { l.src.stop(now + 0.3); } catch { /* 已停止 */ }
+        l.src.onended = () => { l.src.disconnect(); l.lp.disconnect(); l.gain.disconnect(); l.panner?.disconnect(); };
+        this.loops.delete(id);
+        continue;
+      }
+      const own = l.ev.source === 'player';
+      this.applyLoop(l, own ? null : assessHearing(this.listenerPos, l.ev, this.occluder));
+    }
+  }
+
   /**
    * 開槍。回音由「槍口所在的回音區」決定（不是聽者所在區）：
    * AI 或其他玩家在隧道裡開槍，就算聽者在室外也聽到隧道的回音。
    * 每把武器由 SHOT_LAYERS 決定要疊哪些聲音。
    */
-  playShot(weaponId: string, position: THREE.Vector3): void {
-    const zone = findReverbZone(this.zones, position)?.type ?? 'outdoor';
+  playShot(e: NoiseEvent, own: boolean, sp: Partial<PlayOpts>): void {
+    const weaponId = e.weaponId ?? 'pistol';
+    const position = sp.position;
+    const zone = (position ? findReverbZone(this.zones, position)?.type : undefined) ?? 'outdoor';
     const layers = SHOT_LAYERS[weaponId] ?? SHOT_LAYERS.pistol;
     const vJ = jitter(0.05), rJ = jitter(0.03);
     for (const l of layers) {
       const key = this.has(l.key) ? l.key : 'weapons.pistol_fire';
       if (!this.has(key)) continue;
       this.play({
-        key, volume: l.volume * vJ, rate: l.rate * rJ, lowpass: l.lowpass, highshelf: l.highshelf,
-        position, wet: 1.1, sourceZone: zone, refDistance: 8,
+        ...sp, key, volume: l.volume * vJ, rate: l.rate * rJ, lowpass: minDefined(l.lowpass, sp.lowpass), highshelf: l.highshelf,
+        wet: 1.1 + (sp.wetBoost ?? 0), sourceZone: own ? undefined : zone, refDistance: sp.refDistance ?? 8,
         tag: `shot ${weaponId} ${l.key.split('.')[1]} @${zone}`,
       });
     }
+    const pos = e.position;
+    this.playCasing(weaponId, e.surface ?? 'concrete', new THREE.Vector3(pos.x, pos.y, pos.z), e.direction ? new THREE.Vector3(e.direction.x, e.direction.y, e.direction.z) : undefined, !own);
   }
 
-  /** 彈殼落地（延遲播放，音色依地面材質）。敵人的彈殼只有近處才聽得到 */
-  playCasing(weaponId: string, surface: Surface, shotPos: THREE.Vector3, dir: THREE.Vector3 | undefined, fromEnemy: boolean): void {
-    if (fromEnemy && this.listenerPos.distanceTo(shotPos) > 35) return;
+  /** 彈殼落地（延遲播放，音色依地面材質）。別人的彈殼只有近處才聽得到 */
+  playCasing(weaponId: string, surface: Surface, shotPos: THREE.Vector3, dir: THREE.Vector3 | undefined, fromOther: boolean): void {
+    if (fromOther && this.listenerPos.distanceTo(shotPos) > 35) return;
     const prof = CASING_SURFACE[surface] ?? CASING_SURFACE.concrete;
     const pos = this.tmpCasing.copy(shotPos);
-    pos.y -= fromEnemy ? 1.3 : 1.5;
+    pos.y -= fromOther ? 1.3 : 1.5;
     if (dir) { pos.x += -dir.z * 0.8; pos.z += dir.x * 0.8; } // 玩家右側的地面
     this.play({
-      key: 'weapons.casing', volume: (fromEnemy ? 0.22 : 0.4) * prof.volume * jitter(0.15), rate: prof.rate * jitter(0.08),
+      key: 'weapons.casing', volume: (fromOther ? 0.22 : 0.4) * prof.volume * jitter(0.15), rate: prof.rate * jitter(0.08),
       lowpass: prof.lowpass, position: pos.clone(), delay: (CASING_DELAY[weaponId] ?? 0.32) * jitter(0.1),
       wet: 0.5, sourceZone: findReverbZone(this.zones, shotPos)?.type ?? 'outdoor', refDistance: 2, tag: `casing ${surface}`,
     });
@@ -531,7 +748,7 @@ export class AudioManager implements SoundPlayer {
   private hurtGlobal = -99;
 
   /** 敵人的聲音（有位置、走該區的回音）。alert 有全域與個別冷卻 */
-  playEnemyVoice(kind: 'hurt' | 'death' | 'alert', position: THREE.Vector3, enemyId: string): void {
+  playEnemyVoice(kind: 'hurt' | 'death' | 'alert', enemyId: string, sp: Partial<PlayOpts>): void {
     const now = this.ctx?.currentTime ?? 0;
     if (kind === 'alert') {
       if (now - this.alertGlobal < ALERT_COOLDOWN) return;
@@ -542,14 +759,13 @@ export class AudioManager implements SoundPlayer {
       if (now - this.hurtGlobal < 0.12) return;
       this.hurtGlobal = now;
     }
-    const zone = findReverbZone(this.zones, position)?.type ?? 'outdoor';
     // 每個敵人固定一個音高偏移，聽起來是不同的人
     let h = 0;
     for (let i = 0; i < enemyId.length; i++) h = (h * 31 + enemyId.charCodeAt(i)) % 97;
     const voiceRate = 0.9 + (h / 97) * 0.22;
     this.play({
-      key: `enemy.${kind}`, volume: kind === 'alert' ? 1 : kind === 'death' ? 1 : 0.8, rate: voiceRate * jitter(0.05),
-      position: position.clone(), wet: 0.9, sourceZone: zone, refDistance: 6, tag: `enemy ${kind} ${enemyId}`,
+      ...sp, key: `enemy.${kind}`, volume: kind === 'alert' ? 1 : kind === 'death' ? 1 : 0.8, rate: voiceRate * jitter(0.05),
+      wet: 0.9, refDistance: 6, tag: `enemy ${kind} ${enemyId}`,
     });
   }
 
@@ -559,12 +775,10 @@ export class AudioManager implements SoundPlayer {
     if (killed) this.play({ key: 'ui.confirm', volume: 0.45, rate: 1.55, group: 'ui', delay: 0.06, tag: 'kill confirm' });
   }
 
-  /** 治療音：開始（繃帶摩擦聲）、完成（上揚的確認）、取消 */
+  /** 治療的確認音：完成（上揚）、取消。開始的聲音走 noise */
   playHeal(phase: 'start' | 'done' | 'cancel'): void {
-    if (phase === 'start') {
-      this.play({ key: 'ui.equip', volume: 0.6, rate: 0.8, group: 'ui', tag: 'heal start' });
-      this.play({ key: 'sfx.search_rummage', volume: 0.5, rate: 1.35, group: 'ui', delay: 0.1, tag: 'heal rustle' });
-    } else if (phase === 'done') {
+    if (phase === 'start') return; // 開始的聲音（撕繃帶 / 注射）走 noise 事件
+    if (phase === 'done') {
       this.play({ key: 'ui.confirm', volume: 0.6, rate: 1.25, group: 'ui', tag: 'heal done' });
       this.play({ key: 'ui.pickup', volume: 0.5, rate: 0.8, group: 'ui', delay: 0.12, tag: 'heal done 2' });
     } else this.play({ key: 'ui.back', volume: 0.4, group: 'ui', tag: 'heal cancel' });
@@ -611,25 +825,6 @@ export class AudioManager implements SoundPlayer {
     };
   }
 
-  playWeaponAction(weaponId: string, action: 'reload' | 'dry_fire' | 'pump', position: THREE.Vector3): void {
-    const zone = findReverbZone(this.zones, position)?.type ?? 'outdoor';
-    if (action === 'pump') {
-      // 霰彈槍上膛：synth 的「喀—嚓」加一小段降速截短的 reload 素材（金屬滑動感）
-      this.play({ key: 'weapons.shotgun_pump', volume: 0.85 * jitter(0.06), rate: jitter(0.04), position, wet: 0.5, sourceZone: zone, refDistance: 4, tag: `pump ${weaponId}` });
-      return;
-    }
-    this.play({
-      key: action === 'reload' ? 'weapons.reload' : 'weapons.dry_fire',
-      volume: (action === 'reload' ? 0.7 : 0.8) * jitter(0.06),
-      rate: jitter(0.03),
-      position,
-      wet: 0.5,
-      sourceZone: zone,
-      refDistance: 4,
-      tag: `${action} ${weaponId}`,
-    });
-  }
-
   private setListenerZone(type: ReverbType): void {
     this.zoneType = type;
     this.reverb?.setListenerZone(type);
@@ -660,9 +855,13 @@ export class AudioManager implements SoundPlayer {
     let dist = 0;
     if (pos) {
       const dx = pos.x - this.listenerPos.x, dz = pos.z - this.listenerPos.z;
-      if (Math.hypot(dx, dz) < 0.8) pos = undefined;
+      if (Math.hypot(dx, dz) < 0.8 && o.range === undefined) pos = undefined;
       else dist = this.listenerPos.distanceTo(pos);
     }
+    // 有 range（聲音事件）：音量依 data/noise.ts 的衰減曲線，超過距離完全無聲（不播放）
+    const rangeGain = pos && o.range !== undefined ? distanceGain(dist, o.range) : 1;
+    if (rangeGain <= 0) return;
+    const finalGain = rangeGain * (o.gainMul ?? 1);
 
     // 限制同時發聲數
     if (this.voices.length >= MAX_VOICES) this.dropWeakestVoice(ctx.currentTime);
@@ -696,7 +895,7 @@ export class AudioManager implements SoundPlayer {
     }
 
     const vol = ctx.createGain();
-    vol.gain.value = volume;
+    vol.gain.value = volume * finalGain;
     node.connect(vol);
     nodes.push(vol);
 
@@ -707,7 +906,7 @@ export class AudioManager implements SoundPlayer {
       pn.panningModel = 'HRTF';
       pn.distanceModel = 'inverse';
       pn.refDistance = o.refDistance ?? 3;
-      pn.rolloffFactor = 1.2;
+      pn.rolloffFactor = o.range !== undefined ? 0 : 1.2; // 聲音事件：距離衰減由上面的 GainNode 自己算
       pn.maxDistance = 250;
       if (pn.positionX) { pn.positionX.value = pos.x; pn.positionY.value = pos.y; pn.positionZ.value = pos.z; }
       else (pn as unknown as { setPosition(x: number, y: number, z: number): void }).setPosition(pos.x, pos.y, pos.z);
@@ -718,10 +917,10 @@ export class AudioManager implements SoundPlayer {
     }
 
     // 濕聲（殘響送出）：聲源有指定回音區就送進該區，否則走聽者所在區
-    const wetAmt = group === 'sfx' ? o.wet ?? 0.5 : 0;
+    const wetAmt = group === 'sfx' ? Math.min(1.5, (o.wet ?? 0.5) + (o.wetBoost ?? 0)) : 0;
     if (wetAmt > 0) {
       const ref = o.refDistance ?? 3;
-      const att = pos ? ref / (ref + 1.2 * Math.max(0, dist - ref)) : 1;
+      const att = pos ? (o.range !== undefined ? rangeGain : ref / (ref + 1.2 * Math.max(0, dist - ref))) : 1;
       const wet = ctx.createGain();
       wet.gain.value = wetAmt * att;
       vol.connect(wet);
@@ -729,7 +928,7 @@ export class AudioManager implements SoundPlayer {
       nodes.push(wet);
     }
 
-    const voice: Voice = { src, gain: vol, volume: volume * (pos ? 1 / (1 + dist / 10) : 1), start: ctx.currentTime };
+    const voice: Voice = { src, gain: vol, volume: volume * (pos ? (o.range !== undefined ? finalGain : 1 / (1 + dist / 10)) : 1), start: ctx.currentTime };
     this.voices.push(voice);
     src.onended = () => {
       this.voices = this.voices.filter((v) => v !== voice);
@@ -742,7 +941,18 @@ export class AudioManager implements SoundPlayer {
       volume: +volume.toFixed(3), rate: +rate.toFixed(3), lowpass: o.lowpass ?? null, positional: !!pos,
       wet: +wetAmt.toFixed(2), zone: o.sourceZone ? `source:${o.sourceZone}` : `listener:${this.zoneType}`, tag: o.tag,
       highshelf: o.highshelf ?? null, delay: o.delay ?? 0,
+      ...(pos ? this.spatialRecord(pos, dist, o.range, finalGain, o.gainMul !== undefined && o.gainMul < 1) : {}),
     });
+  }
+
+  /** 除錯紀錄：聲源相對耳朵的位置（azimuth：0 前、+90 右、-90 左、±180 後） */
+  private spatialRecord(pos: THREE.Vector3, dist: number, range: number | undefined, gain: number, occluded: boolean) {
+    const rel = this.tmpRel.copy(pos).sub(this.listenerPos);
+    const az = Math.atan2(rel.dot(this.listenerRight), rel.dot(this.listenerFwd)) * 180 / Math.PI;
+    return {
+      pos: { x: +pos.x.toFixed(1), y: +pos.y.toFixed(1), z: +pos.z.toFixed(1) },
+      dist: +dist.toFixed(2), range, gain: +gain.toFixed(3), occluded, azimuth: +az.toFixed(1),
+    };
   }
 
   /** 停掉最舊、最小聲的 voice */
@@ -787,6 +997,8 @@ export class AudioManager implements SoundPlayer {
       reverbParams: ZONE_PARAMS,
       ambience: this.ambience?.debugState() ?? null,
       mapAmbience: this.mapAmb?.debugState() ?? null,
+      loops: [...this.loops.keys()],
+      noiseLog: this.noiseLog,
     };
   }
 

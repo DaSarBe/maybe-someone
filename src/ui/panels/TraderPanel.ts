@@ -146,7 +146,7 @@ export class TraderPanel implements Panel {
     const total = offer.price * ctx.qty;
     const buy = btn(`購買 ${fmtNtd(total)}`, () => {
       const r = eco.traderBuy(id, ctx.qty);
-      if (ui.report(r, `已購買 ${getItem(id)!.name} × ${ctx.qty}`)) ui.audio.playUi('buy', 0.7);
+      if (ui.report(r, `已購買 ${getItem(id)!.name} × ${ctx.qty}`)) (ui.audio.playUi('buy', 0.7), ui.noise('trade'));
     }, 'primary gold');
     buy.dataset.action = 'trader-buy';
     if (offer.left <= 0) buy.setAttribute('disabled', '');
@@ -176,7 +176,7 @@ export class TraderPanel implements Panel {
       const name = def.name;
       const n = ctx.qty;
       const r = eco.traderSell(loc, n);
-      if (ui.report(r, `已賣出 ${name} × ${n}（+${fmtNtd(r.ok ? r.gain : 0)}）`)) { ui.audio.playUi('sell', 0.7); ctx.select(null); }
+      if (ui.report(r, `已賣出 ${name} × ${n}（+${fmtNtd(r.ok ? r.gain : 0)}）`)) { ui.audio.playUi('sell', 0.7); ui.noise('trade'); ctx.select(null); }
     }, 'primary gold');
     sell.dataset.action = 'trader-sell';
     actions.appendChild(sell);

@@ -63,6 +63,16 @@ function mockOf(id: ElementId): HTMLElement {
       box.append(prog, el('div', 'hud-prompt', '按住「互動」搜索：鐵製儲物櫃'));
       return box;
     }
+    case 'noisedir': {
+      const w = el('div', 'nd-mock');
+      for (const [a, c] of [[-50, '#fff'], [60, '#ff3b30'], [170, '#ffd23f']] as const) {
+        const arc = el('i');
+        arc.style.transform = `rotate(${a}deg)`;
+        arc.style.setProperty('--c', c);
+        w.appendChild(arc);
+      }
+      return w;
+    }
     case 'hitdir': {
       const w = el('div', 'cb-dirs le-dirs');
       for (const a of [0, 120, 240]) {
@@ -144,7 +154,7 @@ export class LayoutEditor {
   // ---------------------------------------------------------------- 資料
   private get slot() { return this.draft.slots[this.draft.active]; }
   private get safe(): Rect { return this.game.layout.safe; }
-  private rects(): Record<ElementId, Rect> { return resolveAll(this.slot, this.safe); }
+  private rects(): Record<ElementId, Rect> { return resolveAll(this.slot, this.safe, this.game.layout.viewport); }
 
   private setItem(id: ElementId, patch: Partial<{ x: number; y: number; s: number; o: number }>): void {
     this.slot.items[id] = { ...itemOf(this.slot, id), ...patch };
@@ -185,6 +195,7 @@ export class LayoutEditor {
     });
     v.box.addEventListener('pointermove', (e) => {
       if (e.pointerId !== pid) return;
+      if (DEF_BY_ID[v.id].fixed) return; // 固定在準心：只能調大小與透明度
       const cur = this.rects()[v.id];
       const want: Rect = { x: e.clientX - offX, y: e.clientY - offY, w: cur.w, h: cur.h };
       const safe = this.safe;

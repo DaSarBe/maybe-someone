@@ -67,6 +67,7 @@ export async function loadTestRaid(): Promise<RaidMap> {
   return {
     ...g,
     eraId: 'harbor_1990',
+    difficulty: 1,
     arrivals: [
       { position: new THREE.Vector3(0, 0.1, 12), yaw: 0 },
       { position: new THREE.Vector3(-38, 0.1, 26), yaw: -Math.PI / 2 },

@@ -250,3 +250,9 @@
 .era-info p { margin: 0; font-size: 12px; line-height: 1.5; opacity: .85; }
 .era-rec { font-size: 12px; } .era-rec ul { margin: 2px 0 0; padding-left: 18px; opacity: .85; } .era-rec li { line-height: 1.5; }
 .timemachine .col-b .btn.go { position: sticky; bottom: 0; flex: 0 0 auto; }
+
+/* 地圖難度星等 */
+.era-card .difficulty-lv { color: #ffd23f; letter-spacing: 1px; }
+.era-difficulty { display: flex; flex-direction: column; gap: 2px; padding: 4px 0; }
+.era-difficulty b { color: #ffd23f; font-size: 13px; letter-spacing: 1px; }
+.era-difficulty small { font-size: 11px; opacity: .8; line-height: 1.4; }

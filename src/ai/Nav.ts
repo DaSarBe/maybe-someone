@@ -32,8 +32,11 @@ export class NavIndex {
     return best;
   }
 
-  /** A* 最短路徑（節點索引，含起點與終點）；不連通回傳 null */
-  findPath(from: number, to: number): number[] | null {
+  /**
+   * A* 最短路徑（節點索引，含起點與終點）；不連通回傳 null。
+   * nodePenalty：進入某節點的額外成本（公尺，須 ≥ 0）；包抄用它來避開隊友走的路線。
+   */
+  findPath(from: number, to: number, nodePenalty?: (i: number) => number): number[] | null {
     if (from < 0 || to < 0 || from >= this.size || to >= this.size) return null;
     if (from === to) return [from];
     const g = new Float64Array(this.size).fill(Infinity);
@@ -80,7 +83,7 @@ export class NavIndex {
       closed[i] = 1;
       for (const e of this.adj[i]) {
         if (closed[e.to]) continue;
-        const ng = g[i] + e.cost;
+        const ng = g[i] + e.cost + (nodePenalty ? nodePenalty(e.to) : 0);
         if (ng < g[e.to]) {
           g[e.to] = ng;
           prev[e.to] = i;

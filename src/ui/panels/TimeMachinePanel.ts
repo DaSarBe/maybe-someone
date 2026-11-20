@@ -6,6 +6,14 @@ import { itemCell } from '../ItemWidgets';
 import { EQUIP_LABELS } from '../ItemWidgets';
 import { panelFrame, type Panel, type Ui } from '../Ui';
 
+const stars = (n: number): string => `${'★'.repeat(n)}${'☆'.repeat(3 - n)}`;
+const DIFFICULTY_NAME: Record<number, string> = { 1: '簡單', 2: '普通', 3: '困難' };
+const DIFFICULTY_HINT: Record<number, string> = {
+  1: '敵人命中率與反應較差、聽力較鈍，很少使用戰術。',
+  2: '標準的敵人：會偷襲、趁你換彈衝過來，也會包抄。',
+  3: '敵人命中率高、反應快、聽力靈敏，常蹲走偷襲、趁你換彈 / 治療衝鋒並包抄。',
+};
+
 /** 時光機：選擇時代，出發前確認攜帶物品 */
 export class TimeMachinePanel implements Panel {
   readonly el: HTMLElement;
@@ -49,6 +57,9 @@ export class TimeMachinePanel implements Panel {
       );
       if (era.unlocked) {
         card.appendChild(el('small', 'danger-lv', `危險度 ${'◆'.repeat(era.danger)}${'◇'.repeat(4 - era.danger)}`));
+        const dl = el('small', 'difficulty-lv', `難度 ${stars(era.difficulty)}`);
+        dl.dataset.difficulty = String(era.difficulty);
+        card.appendChild(dl);
         card.addEventListener('click', () => { this.selected = era.id; ui.audio.playUi('select', 0.5); this.render(); });
       } else {
         card.addEventListener('click', () => ui.toast('這個時代尚未開放', 'err'));
@@ -67,6 +78,10 @@ export class TimeMachinePanel implements Panel {
       const box = el('div', 'era-info');
       box.dataset.era = era.id;
       box.append(el('h3', '', era.info.mapName));
+      const diff = el('div', 'era-difficulty');
+      diff.dataset.difficulty = String(era.difficulty);
+      diff.append(el('b', '', `地圖難度　${stars(era.difficulty)}　${DIFFICULTY_NAME[era.difficulty]}`), el('small', '', DIFFICULTY_HINT[era.difficulty]));
+      box.appendChild(diff);
       for (const line of era.info.brief) box.appendChild(el('p', '', line));
       const rec = el('div', 'era-rec');
       rec.appendChild(el('b', '', '建議裝備'));

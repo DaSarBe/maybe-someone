@@ -39,6 +39,8 @@ export interface EnemyDef {
   /** 模型高度（公尺）與顏色倍率（區分 guard 與 thug） */
   height: number;
   tint?: [number, number, number];
+  /** 戰術傾向（乘上難度的戰術機率）：偷襲（蹲走接近）、趁換彈 / 治療衝鋒、包抄 */
+  tactics: { sneak: number; rush: number; flank: number };
   /** 額外掉落：[物品 id, 機率, [最少, 最多]] */
   extraLoot: [string, number, [number, number]][];
   /** 護甲掉落機率 */
@@ -55,6 +57,7 @@ export const ENEMIES: Record<EnemyKind, EnemyDef> = {
     burst: 1, burstRest: [0.7, 1.3], damageScale: 0.8,
     preferRange: [8, 20], rush: false, coverSeeker: false, hearing: 0.8, headChance: 0.05,
     model: 'enemy_soldier', height: 1.8, tint: [0.7, 0.85, 1.2],
+    tactics: { sneak: 0.5, rush: 0.6, flank: 0.5 },
     extraLoot: [['bandage', 0.3, [1, 1]], ['pager', 0.25, [1, 1]]], armorDrop: 0,
   },
   thug: {
@@ -66,6 +69,7 @@ export const ENEMIES: Record<EnemyKind, EnemyDef> = {
     burst: 4, burstRest: [0.5, 1.0], damageScale: 0.7,
     preferRange: [4, 12], rush: true, coverSeeker: false, hearing: 1.0, headChance: 0.07,
     model: 'enemy_soldier', height: 1.8, tint: [1.25, 0.55, 0.5],
+    tactics: { sneak: 0.3, rush: 1.3, flank: 0.8 }, // 莽撞：很少偷襲，愛趁你換彈衝過來
     extraLoot: [['ammo_pistol', 0.4, [10, 24]], ['brick_phone', 0.15, [1, 1]], ['chronite_shard', 0.1, [1, 1]]], armorDrop: 0.6,
   },
   rival_agent: {
@@ -77,6 +81,7 @@ export const ENEMIES: Record<EnemyKind, EnemyDef> = {
     burst: 3, burstRest: [0.35, 0.8], damageScale: 0.7,
     preferRange: [12, 28], rush: false, coverSeeker: true, hearing: 1.3, headChance: 0.1,
     model: 'enemy_robot_gunner', height: 1.9,
+    tactics: { sneak: 1.4, rush: 1.0, flank: 1.4 }, // 訓練有素：最常蹲走偷襲與包抄
     extraLoot: [['chronite_shard', 0.7, [1, 3]], ['chronite', 0.3, [1, 1]], ['quantum_chip', 0.12, [1, 1]], ['medkit', 0.4, [1, 1]], ['ammo_rifle', 0.5, [10, 30]]], armorDrop: 1,
   },
 };
@@ -98,4 +103,40 @@ export function pickWeapon(def: EnemyDef, rng: () => number = Math.random): stri
   let r = rng() * total;
   for (const w of def.weapons) { r -= w.weight; if (r <= 0) return w.id; }
   return def.weapons[0].id;
+}
+
+// ---------------------------------------------------------------- 難度（地圖星等 ★ / ★★ / ★★★）
+export type Difficulty = 1 | 2 | 3;
+
+export interface DifficultyCoef {
+  /** 命中率倍率（結果上限 MAX_HIT_CHANCE） */
+  accuracy: number;
+  /** 反應時間倍率（越小越快發現玩家） */
+  reaction: number;
+  /** 聽覺靈敏度倍率（乘在「聽到的機率」上，聽得到的距離仍由 data/noise.ts 決定） */
+  hearing: number;
+  /** 戰術行為的基礎機率（再乘上各敵人的 tactics 傾向，上限 MAX_TACTIC_CHANCE） */
+  sneak: number;
+  rush: number;
+  flank: number;
+}
+
+export const DIFFICULTY: Record<Difficulty, DifficultyCoef> = {
+  1: { accuracy: 0.75, reaction: 1.3, hearing: 0.8, sneak: 0.2, rush: 0.25, flank: 0.2 },
+  2: { accuracy: 1.0, reaction: 1.0, hearing: 1.0, sneak: 0.45, rush: 0.5, flank: 0.45 },
+  3: { accuracy: 1.3, reaction: 0.75, hearing: 1.25, sneak: 0.75, rush: 0.8, flank: 0.75 },
+};
+export const MAX_HIT_CHANCE = 0.95;
+export const MAX_TACTIC_CHANCE = 0.95;
+
+export const asDifficulty = (v: unknown): Difficulty => (v === 1 || v === 3 ? v : 2);
+
+/** 命中率（已套用難度倍率並限制上限） */
+export function scaledAccuracy(base: number, d: Difficulty): number {
+  return Math.min(MAX_HIT_CHANCE, base * DIFFICULTY[d].accuracy);
+}
+
+/** 戰術行為機率 = 難度基礎 × 敵人傾向 */
+export function tacticChance(kind: 'sneak' | 'rush' | 'flank', d: Difficulty, def: Pick<EnemyDef, 'tactics'>): number {
+  return Math.min(MAX_TACTIC_CHANCE, DIFFICULTY[d][kind] * def.tactics[kind]);
 }

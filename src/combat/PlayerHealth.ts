@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { GameBus } from '../core/EventBus';
+import type { NoiseEvent, NoiseKind } from '../data/noise';
 import { ARMOR_STATS } from '../data/gear';
 import { MEDICAL_STATS, pickMedical } from '../data/medical';
 import type { EconomyService } from '../economy/EconomyService';
@@ -28,6 +29,12 @@ export class PlayerHealth {
 
   constructor(private bus: GameBus, private eco: EconomyService, private player: PlayerController) {
     this.refreshArmor();
+  }
+
+  /** 聲音事件（受傷悶哼、治療）：在胸口高度 */
+  private noise(kind: NoiseKind, extra: Partial<NoiseEvent> = {}): void {
+    const p = this.player.position;
+    this.bus.emit('noise', { kind, position: { x: p.x, y: p.y + 1.2, z: p.z }, source: 'player', ...extra });
   }
 
   /** 從裝備欄重新讀取護甲（開局、關閉背包介面後） */
@@ -61,6 +68,7 @@ export class PlayerHealth {
     this.hp = Math.max(0, this.hp - r.damage);
     const killed = this.hp <= 0;
     this.bus.emit('playerHurt', { amount: r.damage, from, killed, armor: r.durLoss > 0 });
+    this.noise(killed ? 'death' : 'hurt', { surface: this.player.surface });
     this.player.shake(Math.min(0.045, 0.012 + r.damage * 0.0008));
     if (killed) {
       this.dead = true;
@@ -84,6 +92,7 @@ export class PlayerHealth {
     const m = MEDICAL_STATS[id];
     this.heal = { id, rate: m.heal / m.duration, left: m.duration };
     this.bus.emit('heal', { phase: 'start' });
+    this.noise('heal', { item: id });
     return 'started';
   }
 

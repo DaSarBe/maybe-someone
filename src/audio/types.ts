@@ -24,6 +24,12 @@ export interface PlayOpts {
   sourceZone?: ReverbType;
   /** 空間音的參考距離（越大越遠才開始衰減） */
   refDistance?: number;
+  /** 聲音事件的「聽得到的距離」（公尺）：有的話音量依 distanceGain 曲線衰減，超過就完全不播放 */
+  range?: number;
+  /** 額外的音量倍率（牆壁遮擋、樓層造成的衰減） */
+  gainMul?: number;
+  /** 額外送進殘響的比例（上下樓層的回音） */
+  wetBoost?: number;
   /** 指定變化編號；不指定則隨機且避免連續重複 */
   variant?: number;
   /** 除錯紀錄用標籤 */
@@ -53,4 +59,11 @@ export interface PlayRecord {
   highshelf?: number | null;
   delay?: number;
   tag?: string;
+  /** 定位音源的資訊（除錯用）：聲源座標、距離、最終音量、是否被遮擋、相對耳朵的方位角（0 前、+90 右、-90 左） */
+  pos?: { x: number; y: number; z: number };
+  dist?: number;
+  range?: number;
+  gain?: number;
+  occluded?: boolean;
+  azimuth?: number;
 }
