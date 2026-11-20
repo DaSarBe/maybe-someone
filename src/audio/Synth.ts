@@ -515,6 +515,16 @@ const armorEquip: Recipe = {
   },
 };
 
+/** 搜刮揭露一件物品：輕巧的「叮」（音高由呼叫端用 rate 依稀有度調整） */
+const lootReveal: Recipe = {
+  duration: 0.22, peak: 0.55, variants: 2,
+  build(b) {
+    b.tone({ t: 0, freq: jit(b, 1180, 0.02), freqEnd: 1320, peak: 0.5, attack: 0.002, decay: 0.12 });
+    b.tone({ t: 0.0, freq: jit(b, 2360, 0.02), peak: 0.16, attack: 0.002, decay: 0.07 });
+    b.burst({ t: 0, type: 'bandpass', freq: 4200, q: 2, peak: 0.18, attack: 0.001, decay: 0.012 });
+  },
+};
+
 /** 交易：數鈔票（紙張快速摩擦連拍）+ 最後的拍齊 */
 const tradeCash: Recipe = {
   duration: 1.0, peak: 0.7, variants: 3,
@@ -663,6 +673,7 @@ export const RECIPES: Record<string, Recipe> = {
   'sfx.heal_inject': healInject,
   'sfx.armor_equip': armorEquip,
   'sfx.trade_cash': tradeCash,
+  'sfx.loot_reveal': lootReveal,
   'impacts.body_fall': bodyFall,
   'sfx.evac_hum': evacHum,
   'ambient.harbor_wind': harborWind,

@@ -39,7 +39,7 @@ function row(label: string, control: HTMLElement): HTMLElement {
   return r;
 }
 
-/** 「操作設定」頁：靈敏度、陀螺儀、按鍵模式、左側射擊鍵、輔助瞄準。設定即時生效並存檔。 */
+/** 「操作設定」頁：靈敏度、陀螺儀、按鍵模式、搜刮、左側射擊鍵、輔助瞄準。設定即時生效並存檔。 */
 export function buildControlsPanel(game: Game, onBack: () => void): HTMLElement {
   const root = el('div', 'ctl-panel');
   const st = game.controls;
@@ -89,6 +89,17 @@ export function buildControlsPanel(game: Game, onBack: () => void): HTMLElement 
       row('聲音視覺提示（準心周圍顯示別人的腳步、槍聲方向）', seg<'on' | 'off'>([['on', '開'], ['off', '關']], () => (cfg().soundIndicator ? 'on' : 'off'), (v) => upd((c) => { c.soundIndicator = v === 'on'; }))),
     );
     out.push(snd);
+
+    // ---- 搜刮 ----
+    const loot = el('section', 'ctl-sec');
+    loot.append(el('h3', '', '搜刮'));
+    const onOff: ['on' | 'off', string][] = [['on', '開'], ['off', '關']];
+    loot.append(
+      row('安靜搜刮（揭露慢 1.6 倍，搜刮聲音只傳 6m；也可在搜刮面板切換）', seg(onOff, () => (cfg().quietSearch ? 'on' : 'off'), (v) => upd((c) => { c.quietSearch = v === 'on'; }))),
+      row('自動拾取彈藥（目前裝備的武器使用的彈藥，背包有空間才拿）', seg(onOff, () => (cfg().autoPickupAmmo ? 'on' : 'off'), (v) => upd((c) => { c.autoPickupAmmo = v === 'on'; }))),
+      row('自動拾取時晶（所有等級）', seg(onOff, () => (cfg().autoPickupChronite ? 'on' : 'off'), (v) => upd((c) => { c.autoPickupChronite = v === 'on'; }))),
+    );
+    out.push(loot);
 
     // ---- 輔助瞄準 / 左射擊鍵 ----
     const aid = el('section', 'ctl-sec');

@@ -64,6 +64,10 @@ export const NOISE_RANGE: Record<NoiseKind, number> = {
   alert: 20,                // 敵人發現玩家的喊叫（表外補充：和悶哼同級）
 };
 
+/** 安靜搜刮：搜刮聲音的距離倍率（12m → 6m）。聽得到的距離規則仍只由 noiseRange 計算，這裡只提供 loudness */
+export const QUIET_SEARCH_LOUDNESS = 0.5;
+export const searchLoudness = (quiet: boolean): number => (quiet ? QUIET_SEARCH_LOUDNESS : 1);
+
 /** 各武器槍聲的距離 */
 export const SHOT_RANGE: Record<string, number> = { pistol: 80, smg: 90, shotgun: 100, rifle: 120 };
 export const DEFAULT_SHOT_RANGE = 100;

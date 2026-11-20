@@ -256,3 +256,54 @@
 .era-difficulty { display: flex; flex-direction: column; gap: 2px; padding: 4px 0; }
 .era-difficulty b { color: #ffd23f; font-size: 13px; letter-spacing: 1px; }
 .era-difficulty small { font-size: 11px; opacity: .8; line-height: 1.4; }
+
+/* ---- 搜刮：逐件揭露、直接裝備、比較 ---- */
+.cell.unknown { cursor: default; border-color: #2c4258; background: radial-gradient(circle at 50% 40%, #14263a, #0a121b 78%); }
+.cell.unknown .q { position: relative; z-index: 1; font-size: calc(var(--cell) * .5); font-weight: 700; color: #7fa3c4; line-height: 1; text-shadow: 0 0 8px rgba(53,225,255,.35); }
+.cell.unknown .spin {
+  position: absolute; inset: 4px; border-radius: 50%; box-sizing: border-box;
+  border: 2px solid rgba(53,225,255,.14); border-top-color: var(--neon); animation: lootspin .9s linear infinite;
+}
+.cell.unknown.active { border-color: var(--neon); box-shadow: 0 0 10px rgba(53,225,255,.45); }
+.cell.unknown.active::before {
+  content: ''; position: absolute; inset: 0; background: conic-gradient(rgba(53,225,255,.3) var(--p, 0deg), transparent var(--p, 0deg));
+}
+@keyframes lootspin { to { transform: rotate(360deg); } }
+.cell.filled.just { animation: lootpop .35s ease-out; }
+@keyframes lootpop { from { transform: scale(.7); opacity: .2; } to { transform: scale(1); opacity: 1; } }
+.quiet-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.quiet-row small { opacity: .65; font-size: 11px; }
+.btn.on { background: rgba(74,222,128,.22); border-color: #4ade80; color: #fff; }
+.reveal-status { margin: 0 !important; font-size: 12px !important; color: #7dd3fc; }
+.loot-detail { display: flex; flex-direction: column; gap: 6px; min-height: 0; flex: 1; }
+.ld-scroll { display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow-y: auto; padding-right: 2px; }
+.ld-actions { flex: 0 0 auto; padding-top: 6px; border-top: 1px solid var(--line); }
+.cmp { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: rgba(53,225,255,.05); }
+.cmp-head { font-size: 12px; opacity: .8; margin-bottom: 2px; }
+.cmp-row { display: grid; grid-template-columns: 44px auto 1fr; align-items: baseline; gap: 6px; font-size: 13px; }
+.cmp-l { opacity: .65; }
+.cmp-v { font-weight: 600; font-variant-numeric: tabular-nums; }
+.cmp-a { text-align: left; font-size: 12px; }
+.cmp-row.up .cmp-v, .cmp-row.up .cmp-a { color: #4ade80; }
+.cmp-row.down .cmp-v, .cmp-row.down .cmp-a { color: #ff6b6b; }
+.cmp-row.same .cmp-a { opacity: .4; }
+.swap-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.swap-l { opacity: .7; flex: 0 0 auto; }
+.swap-row .ctl-seg { flex: 1; }
+.swap-row .seg-btn:disabled { opacity: .35; }
+.swap-note { color: #ffb3a0; font-size: 11px; line-height: 1.4; }
+.btn.equipping { position: relative; overflow: hidden; }
+.btn .eq-prog { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.15); }
+.btn .eq-prog i { display: block; height: 100%; width: 0; background: #4ade80; }
+.loot .col-c { overflow: hidden; }
+.loot .col-c .detail { flex: 1; min-height: 0; }
+.act-row { display: flex; gap: 6px; }
+.act-row .btn { flex: 1 1 0; min-width: 0; }
+.act-row .btn.primary { flex: 2 1 0; }
+@media (max-height: 520px) {
+  .loot .gear .stats { display: none; }
+  .loot .col-a { --cell: 50px; }
+  .loot .desc { display: none; }
+  .loot .info-head .cell { --cell: 40px; }
+  .loot .ld-actions .btn { min-height: 34px; padding: 4px 8px; }
+}

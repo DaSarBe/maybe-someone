@@ -12,11 +12,14 @@ import { WeaponSystem } from '../combat/WeaponSystem';
 import { WorldTrace } from '../combat/WorldTrace';
 import type { Game, Scene } from '../core/Game';
 import { DEFAULT_ERA, getEra } from '../data/eras';
-import { SUSTAINED_BEAT } from '../data/noise';
+import { SUSTAINED_BEAT, searchLoudness } from '../data/noise';
+import { CONTAINER_OPEN_SECONDS } from '../data/search';
 import { asDifficulty, type Difficulty } from '../data/enemies';
 import { NoiseIndicator } from '../ui/NoiseIndicator';
 import { LOOT_TABLES, type ContainerLootDef, type ContainerType } from '../data/lootTables';
 import type { Slot } from '../items/Inventory';
+import { autoPickupFromLoot } from '../items/LootActions';
+import { LootSearch } from '../items/LootSearch';
 import { rollContainer } from '../items/LootTable';
 import { MobileControls } from '../player/MobileControls';
 import { ASSIST_SCALE } from '../settings/ControlSettings';
@@ -33,6 +36,7 @@ import { ResultPanel } from '../ui/panels/ResultPanel';
 import { TraderPanel } from '../ui/panels/TraderPanel';
 import { TransferPanel } from '../ui/panels/TransferPanel';
 import { getTrader } from '../data/traders';
+import { getItem } from '../data/items';
 import { setupLighting } from './Lighting';
 import { makeLabel } from './maps/hub';
 import { fitModel, loadModel } from './Models';
@@ -41,6 +45,8 @@ import { TraderNpc } from './TraderNpc';
 import { findReverbZone, type ReverbType, type ReverbZone, type Surface } from './Surface';
 
 const EVAC_SECONDS = 5;
+/** 揭露提示音的音高（依稀有度） */
+const REVEAL_PITCH: Record<string, number> = { common: 1, uncommon: 1.12, rare: 1.26, epic: 1.41, legendary: 1.59 };
 const INTERACT_RANGE = 2.3;
 /** 與商人互動的距離（水平）：商人在攤位內，玩家在櫃檯前 */
 const TRADER_RANGE = 3.7;
@@ -55,8 +61,12 @@ export interface RaidContainer {
   def: ContainerLootDef;
   pos: THREE.Vector3;
   loot: Slot[];
-  /** 已經搜索完成（內容可見） */
-  searched: boolean;
+  /** 已經打開過（之後再互動直接開面板，不用再等開箱動作） */
+  opened: boolean;
+  /** 逐件揭露的進度（關閉面板後保留） */
+  search: LootSearch;
+  /** 已經搜空：場景中變暗 */
+  dimmed?: boolean;
   group: THREE.Group;
   marker: THREE.Mesh;
   /** 敵人屍體 */
@@ -119,9 +129,10 @@ export class RaidScene implements Scene {
   private timeOffset = 0;
   private lastSecond = -1;
   private warned = false;
-  private searching: RaidContainer | null = null;
-  private searchProgress = 0;
-  private needRelease = false;
+  /** 開箱動作（點一下互動後 0.5 秒，期間移動離開範圍或開槍會中斷） */
+  private opening: { c: RaidContainer; t: number } | null = null;
+  /** 目前打開著的搜刮面板（揭露進度由場景推進，面板關閉就停止） */
+  private activeLoot: { c: RaidContainer; panel: LootPanel } | null = null;
   private evacProgress = 0;
   private nearC: RaidContainer | null = null;
   private nearTrader = false;
@@ -253,7 +264,7 @@ export class RaidScene implements Scene {
 
     this.menu = new PauseMenu(game.container, game.input, game.audio, {
       touch, debug: game.debug, game,
-      hint: 'WASD 移動（Shift 衝刺、C 蹲下、蹲下再按 Shift = 蹲跑）・ 左鍵射擊 ・ 右鍵瞄準 ・ R 換彈 ・ 1/2 或滾輪換槍 ・ 4 治療 ・ 按住 E 搜索 ・ Tab 背包 ・ K 模擬死亡（測試）・ Esc 暫停|左側搖桿移動（蹲下後推到底 = 蹲跑）・ 右側拖曳轉視角 ・ 左右兩側射擊鍵（右側可拖曳轉視角）・ 瞄準、換彈、切換武器、治療 ・ 按住「互動」搜索',
+      hint: 'WASD 移動（Shift 衝刺、C 蹲下、蹲下再按 Shift = 蹲跑）・ 左鍵射擊 ・ 右鍵瞄準 ・ R 換彈 ・ 1/2 或滾輪換槍 ・ 4 治療 ・ E 搜刮容器（點一下就開始）・ Tab 背包 ・ K 模擬死亡（測試）・ Esc 暫停|左側搖桿移動（蹲下後推到底 = 蹲跑）・ 右側拖曳轉視角 ・ 左右兩側射擊鍵（右側可拖曳轉視角）・ 瞄準、換彈、切換武器、治療 ・ 點「互動」搜刮',
       isBlocked: () => this.ui.isOpen,
       extra: [
         { label: '模擬死亡（測試）', onClick: () => this.end('death'), confirm: '再按一次確認：你會失去所有物品' },
@@ -364,7 +375,7 @@ export class RaidScene implements Scene {
       group.add(marker);
       this.scene.add(group);
 
-      const c: RaidContainer = { type, def, pos, loot, searched: false, group, marker };
+      const c: RaidContainer = { type, def, pos, loot, opened: false, search: new LootSearch(loot), group, marker };
       this.containers.push(c);
 
       if (def.look.model !== 'box') {
@@ -381,6 +392,7 @@ export class RaidScene implements Scene {
           });
           group.remove(body);
           group.add(g);
+          if (c.dimmed) this.dimGroup(g);
         });
       }
     }
@@ -436,7 +448,7 @@ export class RaidScene implements Scene {
     group.add(marker);
     this.scene.add(group);
     const def: ContainerLootDef = { ...table, name: `${e.def.name}的屍體` };
-    const c: RaidContainer = { type: 'corpse', def, pos: e.pos.clone(), loot, searched: false, group, marker, enemy: e };
+    const c: RaidContainer = { type: 'corpse', def, pos: e.pos.clone(), loot, opened: false, search: new LootSearch(loot), group, marker, enemy: e };
     this.containers.push(c);
   }
 
@@ -470,7 +482,8 @@ export class RaidScene implements Scene {
     const r = this.game.economy.resolveRaid(outcome);
     if (!r.ok) return;
     this.ended = true;
-    this.searching = null;
+    this.opening = null;
+    this.activeLoot = null;
     this.hud.setPrompt(null);
     this.hud.setProgress(null);
     this.chud.setVisible(false);
@@ -495,29 +508,101 @@ export class RaidScene implements Scene {
     this.openPanel(new TraderPanel(this.ui, this.era));
   }
 
+  /** 打開搜刮面板：揭露進度保留在容器上，從下一件繼續 */
   private openContainer(c: RaidContainer): void {
-    this.openPanel(new LootPanel(this.ui, c.def, c.loot));
+    c.opened = true;
+    const panel = new LootPanel(this.ui, c.def, c.loot, c.search, () => {
+      if (this.activeLoot?.panel === panel) this.activeLoot = null;
+      this.refreshMarker(c);
+    });
+    this.activeLoot = { c, panel };
+    this.refreshMarker(c);
+    this.openPanel(panel);
+  }
+
+  /** 互動（點一下、按一下 E 或點提示）：已搜空 → 提示；打開過 → 直接開面板；第一次 → 開箱動作 */
+  private interactContainer(c: RaidContainer): void {
+    if (this.opening || this.ui.isOpen || this.ended) return;
+    if (c.search.exhausted) { this.ui.toast(`${c.def.name}已搜空`, 'info'); return; }
+    if (c.opened) { this.openContainer(c); return; }
+    this.opening = { c, t: 0 };
   }
 
   private refreshMarker(c: RaidContainer): void {
-    c.marker.visible = !c.searched || c.loot.some((s) => !!s);
-    (c.marker.material as THREE.MeshBasicMaterial).color.set(c.searched ? '#8892a0' : MARKER_COLOR[c.type]);
+    const empty = c.search.exhausted;
+    c.marker.visible = !empty;
+    (c.marker.material as THREE.MeshBasicMaterial).color.set(c.opened ? '#8892a0' : MARKER_COLOR[c.type]);
+    if (empty && !c.dimmed) {
+      c.dimmed = true;
+      this.dimGroup(c.group);
+    }
+  }
+
+  /** 搜空的容器變暗、降低飽和度（複製材質，不影響共用的模型材質） */
+  private dimGroup(g: THREE.Object3D): void {
+    g.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || mesh === (this.containers.find((c) => c.group === g)?.marker)) return;
+      const dim = (m: THREE.Material): THREE.Material => {
+        const mat = m.clone() as THREE.MeshStandardMaterial;
+        if (mat.color) {
+          const hsl = { h: 0, s: 0, l: 0 };
+          mat.color.getHSL(hsl);
+          mat.color.setHSL(hsl.h, hsl.s * 0.25, hsl.l * 0.4);
+        }
+        return mat;
+      };
+      if (mesh.userData.keepMaterial) return;
+      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(dim) : dim(mesh.material);
+    });
   }
 
   /** 玩家的聲音事件（手部高度）；持續型（搜刮、撤離）由 beat 每 SUSTAINED_BEAT 秒送一次心跳 */
-  private emitNoise(kind: 'search' | 'evac'): void {
+  private emitNoise(kind: 'search' | 'evac', loudness = 1): void {
     const p = this.player.position;
-    this.game.bus.emit('noise', { kind, position: { x: p.x, y: p.y + 1.0, z: p.z }, source: 'player' });
+    this.game.bus.emit('noise', { kind, position: { x: p.x, y: p.y + 1.0, z: p.z }, source: 'player', ...(loudness !== 1 ? { loudness } : {}) });
   }
 
   private beat(id: string, kind: 'search' | 'evac'): void {
     const now = this.t;
     if (now - (this.beatT[id] ?? -99) < SUSTAINED_BEAT) return;
     this.beatT[id] = now;
-    this.emitNoise(kind);
+    // 安靜搜刮：搜刮聲音距離減半（倍率定義在 data/noise.ts）
+    this.emitNoise(kind, kind === 'search' ? searchLoudness(this.game.controls.get().quietSearch) : 1);
+  }
+
+  /** 揭露中的容器：推進進度、持續發出搜刮聲音、處理新揭露的物品（自動拾取） */
+  private tickLoot(dt: number): void {
+    const a = this.activeLoot;
+    if (!a) return;
+    const c = a.c;
+    if (!this.ui.isOpen) { this.activeLoot = null; return; }
+    if (c.search.finished) return;
+    const cfg = this.game.controls.get();
+    const revealed = c.search.advance(dt, { scale: this.game.economy.searchScale(), quiet: cfg.quietSearch });
+    if (!c.search.finished) this.beat('search', 'search');
+    if (revealed.length === 0) return;
+    for (const i of revealed) {
+      const item = c.loot[i];
+      if (item) {
+        const rar = getItem(item.id)?.rarity ?? 'common';
+        this.game.audio.play({ key: 'sfx.loot_reveal', volume: 0.45, rate: REVEAL_PITCH[rar], group: 'ui', tag: 'loot reveal' });
+      }
+      const r = autoPickupFromLoot(this.game.economy, c.loot, i, { ammo: cfg.autoPickupAmmo, chronite: cfg.autoPickupChronite });
+      if (r?.taken) {
+        this.game.bus.emit('itemPicked', { itemId: r.id, qty: r.taken });
+        this.ui.noise('item_pickup');
+        this.ui.toast(`自動拾取：${r.name} ×${r.taken}`, 'info');
+      }
+      if (r?.blocked) this.ui.toast('背包已滿', 'err');
+    }
+    a.panel.onRevealed(revealed);
+    if (c.search.finished) this.refreshMarker(c);
   }
 
   private onHurt(amount: number, from?: THREE.Vector3): void {
+    if (this.activeLoot) { this.ui.close(); this.ui.toast('搜刮被打斷', 'err'); }
+    this.opening = null;
     let angle: number | null = null;
     if (from) {
       const pp = this.player.position;
@@ -567,6 +652,7 @@ export class RaidScene implements Scene {
     if (rem <= 0) { this.end('death'); return; }
     if (rem <= 60 && !this.warned) { this.warned = true; this.hud.flash('時空穩定度不足！盡快撤離'); }
 
+    this.tickLoot(dt);
     if (this.ui.isOpen) return;
     const inp = this.game.input;
     const pos = this.player.position;
@@ -591,33 +677,28 @@ export class RaidScene implements Scene {
       if (d < nd && Math.abs(pos.y - c.pos.y) < 2) { near = c; nd = d; }
     }
     this.nearC = near;
-    if (!inp.isDown('interact')) this.needRelease = false;
 
     // 時代商人：靠近按 E 開啟交易介面（優先於容器）
     const tp = this.map.trader?.position;
     this.nearTrader = !!(this.trader && tp && Math.hypot(pos.x - tp.x, pos.z - tp.z) <= TRADER_RANGE && Math.abs(pos.y - tp.y) < 2.2);
     if (this.nearTrader && inp.consumePress('interact')) { this.openTrader(); return; }
 
-    if (near && near !== this.searching) { this.searching = null; this.searchProgress = 0; }
-    if (near && !near.searched && inp.isDown('interact') && !this.needRelease) {
-      this.searching = near;
-      this.beat('search', 'search');
-      const total = near.def.searchTime * this.game.economy.searchScale();
-      this.searchProgress += dt / total;
-      if (this.searchProgress >= 1) {
-        near.searched = true;
-        this.searching = null;
-        this.searchProgress = 0;
-        this.needRelease = true;
-        this.refreshMarker(near);
-        this.game.audio.play({ key: 'sfx.container_open', volume: 0.7, tag: 'container open' });
-        this.emitNoise('search');
-        this.openContainer(near);
+    // 點一下互動就開始（按住也可以，只看按下的那一刻）；開箱動作中移動離開範圍或開槍會中斷
+    if (this.opening) {
+      const o = this.opening;
+      if (near !== o.c || inp.isDown('fire')) this.opening = null;
+      else {
+        this.beat('search', 'search');
+        o.t += dt;
+        if (o.t >= CONTAINER_OPEN_SECONDS) {
+          this.opening = null;
+          this.game.audio.play({ key: 'sfx.container_open', volume: 0.7, tag: 'container open' });
+          this.emitNoise('search', searchLoudness(this.game.controls.get().quietSearch));
+          this.openContainer(o.c);
+        }
       }
-    } else {
-      this.searching = null;
-      this.searchProgress = Math.max(0, this.searchProgress - dt * 3);
-      if (near && near.searched && inp.consumePress('interact')) this.openContainer(near);
+    } else if (near && inp.consumePress('interact')) {
+      this.interactContainer(near);
     }
     if (inp.consumePress('inventory')) this.openPanel(new TransferPanel(this.ui, 'body'));
   }
@@ -627,9 +708,9 @@ export class RaidScene implements Scene {
     const c = this.nearC;
     if (!c) return null;
     const touch = this.game.isTouch;
-    if (!c.searched) return touch ? `按住「互動」搜索：${c.def.name}` : `按住 E 搜索：${c.def.name}`;
-    if (c.loot.every((s) => !s)) return `${c.def.name}（已搜空）`;
-    return touch ? `點「互動」打開：${c.def.name}` : `按 E 打開：${c.def.name}`;
+    if (c.search.exhausted) return `${c.def.name}（已搜空）`;
+    const verb = !c.opened ? '搜刮' : c.search.finished ? '打開' : '繼續搜刮';
+    return touch ? `點「互動」${verb}：${c.def.name}` : `按 E ${verb}：${c.def.name}`;
   }
 
   render(alpha: number, frameDt: number): void {
@@ -654,6 +735,7 @@ export class RaidScene implements Scene {
     }
     this.fx.update(frameDt);
     this.noiseHud?.update(frameDt);
+    this.activeLoot?.panel.tick(frameDt);
     this.projScreen.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.projScreen);
     this.enemies.updateAnim(frameDt, this.frustum);
@@ -673,10 +755,10 @@ export class RaidScene implements Scene {
       this.hud.setTimer(Math.max(0, this.remaining), this.duration);
       const text = this.promptText();
       const c = this.nearC;
-      this.hud.setPrompt(this.ui.isOpen ? null : text, this.nearTrader ? () => this.openTrader() : c && c.searched && c.loot.some((s) => !!s) ? () => this.openContainer(c) : undefined);
+      this.hud.setPrompt(this.ui.isOpen ? null : text, this.nearTrader ? () => this.openTrader() : c && !c.search.exhausted ? () => this.interactContainer(c) : undefined);
       if (this.ui.isOpen) this.hud.setProgress(null);
       else if (this.evacProgress > 0.001) this.hud.setProgress(`撤離中… ${(EVAC_SECONDS * (1 - this.evacProgress)).toFixed(1)}s`, this.evacProgress);
-      else if (this.searchProgress > 0.001) this.hud.setProgress('搜索中…', this.searchProgress);
+      else if (this.opening) this.hud.setProgress('開啟中…', this.opening.t / CONTAINER_OPEN_SECONDS);
       else this.hud.setProgress(null);
 
       const wh = this.weapons.hud();

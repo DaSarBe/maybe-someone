@@ -18,6 +18,11 @@ export interface ControlSettings {
   assist: AssistLevel;
   /** 聲音視覺提示（螢幕邊緣顯示別人發出的聲音方向）；預設開啟 */
   soundIndicator: boolean;
+  /** 安靜搜刮：揭露時間 ×1.6，搜刮聲音距離減半（記住上次的選擇） */
+  quietSearch: boolean;
+  /** 自動拾取：揭露出目前武器使用的彈藥 / 時晶時直接放進背包 */
+  autoPickupAmmo: boolean;
+  autoPickupChronite: boolean;
 }
 
 export const SENS_MIN = 0.2;
@@ -39,6 +44,9 @@ export function defaultControls(touch: boolean): ControlSettings {
     leftFire: true,
     assist: 'standard',
     soundIndicator: true,
+    quietSearch: false,
+    autoPickupAmmo: true,
+    autoPickupChronite: true,
   };
 }
 
@@ -73,6 +81,9 @@ export function migrateControls(raw: unknown, touch: boolean): ControlSettings {
     leftFire: typeof r.leftFire === 'boolean' ? r.leftFire : d.leftFire,
     assist: pick(r.assist, ['off', 'weak', 'standard'] as const, d.assist),
     soundIndicator: typeof r.soundIndicator === 'boolean' ? r.soundIndicator : d.soundIndicator,
+    quietSearch: typeof r.quietSearch === 'boolean' ? r.quietSearch : d.quietSearch,
+    autoPickupAmmo: typeof r.autoPickupAmmo === 'boolean' ? r.autoPickupAmmo : d.autoPickupAmmo,
+    autoPickupChronite: typeof r.autoPickupChronite === 'boolean' ? r.autoPickupChronite : d.autoPickupChronite,
   };
 }
 

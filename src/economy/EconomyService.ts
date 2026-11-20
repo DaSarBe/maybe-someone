@@ -4,7 +4,7 @@ import { SHOP_CATEGORIES, getItem } from '../data/items';
 import { getUpgrade, type UpgradeId } from '../data/upgrades';
 import { WEAPON_STATS } from '../data/weapons';
 import type { ItemDef } from '../data/types';
-import { Inventory, stackWeight, type ItemStack } from '../items/Inventory';
+import { Inventory, stackWeight, type ItemStack, type Slot } from '../items/Inventory';
 import {
   EQUIP_SLOTS, PROFILE_KEY, carriedSpec, createDefaultProfile, equipmentWeight, fitProfile, itemMaxDur,
   migrateProfile, raidDuration, safeCapacity, searchTimeScale, secureCapacity, stashCapacity,
@@ -131,10 +131,11 @@ export class EconomyService {
     for (const fn of [...this.listeners]) fn();
   }
 
-  private tx<T extends object>(fn: (p: Profile) => Result<T>): Result<T> {
+  /** commit = false：只驗證（試算），不寫回也不通知 */
+  private tx<T extends object>(fn: (p: Profile) => Result<T>, commit = true): Result<T> {
     const draft = structuredClone(this.p);
     const r = fn(draft);
-    if (r.ok) {
+    if (r.ok && commit) {
       this.p = draft;
       this.persist();
     }
@@ -294,6 +295,56 @@ export class EconomyService {
     });
   }
 
+  /**
+   * Raid 中從容器（或屍體）直接裝備。loot 是場景的容器內容（就地修改，成功才寫回），index 是要裝備的格子。
+   * 裝備欄位由物品決定（手槍 = 副武器，其他槍 = 主武器，護甲、背包各一個）。
+   * 欄位上原本的裝備：dest = 'container'（預設）放回容器的同一格；'carried' 放進背包（放不下就拒絕）。
+   * 換背包時舊背包的內容搬進新背包，格數或負重放不下就整個拒絕（不會弄丟東西）。
+   * 彈匣子彈數、護甲耐久（dur）跟著物品走。dryRun = true 只驗證不執行（UI 用來停用按鈕）。
+   */
+  equipFromContainer(
+    loot: Slot[], index: number, opts: { dest?: 'container' | 'carried'; dryRun?: boolean } = {},
+  ): Result<{ slot: EquipSlot; equipped: ItemStack; replaced: ItemStack | null; replacedTo: 'container' | 'carried' | null }> {
+    const draftLoot = structuredClone(loot);
+    const dest = opts.dest ?? 'container';
+    const r = this.tx((p) => {
+      if (!p.raid) return fail('not_in_raid');
+      const s = draftLoot[index];
+      if (!s) return fail('invalid');
+      const def = getItem(s.id);
+      const slot = def ? equipSlotFor(def) : null;
+      if (!slot) return fail('not_equippable');
+      if (s.qty !== 1) return fail('invalid');
+      const prev = p.equipment[slot];
+      const equipped = cloneStack(s, 1);
+      p.equipment[slot] = equipped;
+      if (slot === 'backpack') {
+        // 舊背包的內容搬進新背包：格數與負重都要放得下
+        const spec = carriedSpec(p);
+        const fresh: Slot[] = [];
+        const inv = new Inventory(fresh, { capacity: spec.slots, maxWeight: spec.maxWeight, extraWeight: equipmentWeight(p) });
+        for (const st of p.carried) {
+          if (st && inv.addStack(st) > 0) return fail('full', '新背包放不下目前背包裡的東西（格數或負重不足）');
+        }
+        p.carried = fresh;
+      }
+      let replacedTo: 'container' | 'carried' | null = null;
+      draftLoot[index] = null;
+      if (prev) {
+        if (dest === 'carried') {
+          if (this.inv(p, 'carried').addStack(prev) > 0) return fail('full', '背包放不下換下來的裝備');
+          replacedTo = 'carried';
+        } else {
+          draftLoot[index] = prev;
+          replacedTo = 'container';
+        }
+      }
+      return { ok: true, slot, equipped: cloneStack(equipped), replaced: prev ? cloneStack(prev) : null, replacedTo };
+    }, !opts.dryRun);
+    if (r.ok && !opts.dryRun) loot.splice(0, loot.length, ...draftLoot);
+    return r;
+  }
+
   unequip(slot: EquipSlot, dest?: ContainerId): Result {
     return this.tx((p) => {
       const e = p.equipment[slot];
@@ -356,6 +407,35 @@ export class EconomyService {
       if (left >= qty) return fail(this.whyFull(inv, id), this.whyFull(inv, id) === 'full' ? '背包已滿' : undefined);
       return { ok: true, taken: qty - left };
     });
+  }
+
+  /**
+   * 自動拾取是否適用：目前裝備的武器（主 / 副武器）使用的彈藥，或時晶（任何等級）。
+   * 兩類各有開關（控制設定）。
+   */
+  isAutoPickup(id: string, opts: { ammo: boolean; chronite: boolean }): boolean {
+    const def = getItem(id);
+    if (!def) return false;
+    if (def.category === 'chronite') return opts.chronite;
+    if (def.category === 'ammo' && opts.ammo) {
+      return (['primary', 'secondary'] as const).some((slot) => {
+        const e = this.p.equipment[slot];
+        return !!e && WEAPON_STATS[e.id]?.ammoType === id;
+      });
+    }
+    return false;
+  }
+
+  /**
+   * 揭露出物品時的自動拾取。不符合條件：ok 且 wanted = false、taken = 0。
+   * 符合條件：放進背包，放不下一部分時 taken 小於 qty，完全放不下回傳 full（物品留在容器）。
+   */
+  autoPickup(stack: ItemStack, opts: { ammo: boolean; chronite: boolean }): Result<{ wanted: boolean; taken: number }> {
+    if (!this.p.raid) return fail('not_in_raid');
+    if (!this.isAutoPickup(stack.id, opts)) return { ok: true, wanted: false, taken: 0 };
+    const r = this.lootItem(stack.id, stack.qty, stack.dur);
+    if (!r.ok) return fail('full', '背包已滿');
+    return { ok: true, wanted: true, taken: r.taken };
   }
 
   /**

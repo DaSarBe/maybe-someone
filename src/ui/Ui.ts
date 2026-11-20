@@ -65,6 +65,7 @@ export class Ui {
   get economy() { return this.game.economy; }
   get bus() { return this.game.bus; }
   get isTouch(): boolean { return this.game.isTouch; }
+  get controls() { return this.game.controls; }
 
   open(panel: Panel): void {
     if (this.panel) this.close(true, true);
