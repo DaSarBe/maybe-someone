@@ -18,7 +18,7 @@ export const EDGE_MARGIN = 6;
 export const SLOT_COUNT = 3;
 
 export type ElementId =
-  | 'stick' | 'fireL' | 'fireR' | 'aim' | 'jump' | 'crouch' | 'reload' | 'interact' | 'swap' | 'heal'
+  | 'stick' | 'fireL' | 'fireR' | 'aim' | 'jump' | 'crouch' | 'reload' | 'interact' | 'swap' | 'heal' | 'flashlight'
   | 'inventory' | 'menu'
   | 'timer' | 'ammo' | 'hp' | 'armor' | 'helmet' | 'credits' | 'prompt' | 'hitdir' | 'noisedir';
 
@@ -51,7 +51,7 @@ const hud = (id: ElementId, label: string, w: number, nw: number, nh: number, x:
 /**
  * 預設版面（以 iPhone 16 Pro 橫向為基準，並在 6 種常見尺寸驗證過不重疊）。
  * 左側：搖桿（左下）、左射擊鍵（搖桿右上方）；右側：射擊（右下）、跳、蹲、瞄準、互動、換彈、切換、治療；
- * 右上：背包、☰；上方中央：時空穩定度；左上：信用點、血量、護甲、頭盔；下方中央：彈藥；中央：受擊方向與互動提示。
+ * 右上：背包、☰；上方中央：時空穩定度；左上：信用點、血量、護甲、頭盔（其下：手電筒 / 雷射開關）；下方中央：彈藥；中央：受擊方向與互動提示。
  */
 export const ELEMENT_DEFS: ElementDef[] = [
   btn('stick', '虛擬搖桿', 0.36, 0.13, 0.74),
@@ -64,6 +64,7 @@ export const ELEMENT_DEFS: ElementDef[] = [
   btn('interact', '互動', 0.17, 0.765, 0.342),
   btn('swap', '切換武器', 0.14, 0.661, 0.259),
   btn('heal', '治療', 0.14, 0.661, 0.906),
+  btn('flashlight', '手電筒', 0.14, 0.1, 0.45),
   btn('inventory', '背包', 0.14, 0.87, 0.075),
   btn('menu', '☰ 設定', 0.13, 0.955, 0.075),
   hud('timer', '時空穩定度', 0.6, 230, 58, 0.5, 0.075),

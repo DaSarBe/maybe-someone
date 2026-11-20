@@ -5,10 +5,9 @@ import type { CombatFx } from '../combat/Fx';
 import type { WorldTrace } from '../combat/WorldTrace';
 import { ARMOR_STATS, HELMET_STATS } from '../data/gear';
 import { enemyHeadshotChance, effectiveHelmetLevel, resolveHeadshot, type WeaponClass } from '../data/helmet';
-import { DIFFICULTY, accuracyAt, pickWeapon, rollEnemyHelmet, scaledAccuracy, type Difficulty, type EnemyDef } from '../data/enemies';
+import { DIFFICULTY, accuracyAt, pickWeapon, rollEnemyHelmet, rollEnemyMods, scaledAccuracy, type Difficulty, type EnemyDef } from '../data/enemies';
 import type { NoiseEvent, NoiseKind } from '../data/noise';
 import { assessHearing } from '../audio/Hearing';
-import { WEAPON_STATS } from '../data/weapons';
 import type { WeaponStats } from '../data/types';
 import type { EnemySpawn } from '../world/RaidMap';
 import type { Surface } from '../world/Surface';
@@ -16,7 +15,9 @@ import { EnemyBrain, type AiState } from './Brain';
 import { EnemyMover } from './EnemyMover';
 import { createEnemyModel, type EnemyAnim } from './EnemyModel';
 import type { NavIndex } from './Nav';
-import { inFieldOfView, visionGain } from './Perception';
+import { inFieldOfView, tacticalVision, visionGain } from './Perception';
+import { effectiveWeapon, type EffectiveWeapon } from '../combat/WeaponMods';
+import type { WeaponMods } from '../data/attachments';
 import { RUSH_RANGE, SNEAK_APPROACH, hearChance, isNpcSource, shouldRush, shouldSneak } from './Tactics';
 
 /** 玩家的感知用資訊（每幀由場景更新同一個物件） */
@@ -32,6 +33,9 @@ export interface PlayerTarget {
   /** 正在治療 / 換彈（敵人看到治療、聽到換彈會趁機衝過來） */
   healing?: boolean;
   reloading?: boolean;
+  /** 手電筒開著（暗處更容易被看到）/ 雷射開著 */
+  flashlight?: boolean;
+  laser?: boolean;
 }
 
 export interface EnemyContext {
@@ -61,6 +65,8 @@ export interface EnemyContext {
 export type Stance = 'walk' | 'crouch' | 'crouch_run';
 export type HearResult = 'ignored' | 'missed' | 'heard' | 'rush';
 
+/** 滅音槍聲的方位誤差倍率 */
+export const SUPPRESSED_ERR_K = 3;
 const CROUCH_SPEED_K = 0.5;
 const CROUCH_RUN_SPEED_K = 1.7;
 const FLANK_MAX_TIME = 25;
@@ -79,6 +85,9 @@ export class Enemy {
   readonly group: string | null;
   readonly weaponId: string;
   readonly stats: WeaponStats;
+  /** 武器上的配件與套用後的數值（滅音器的槍聲、擴容彈匣的彈匣容量） */
+  readonly mods: WeaponMods;
+  readonly eff: EffectiveWeapon;
   readonly root = new THREE.Group();
   facing = 0;
   hp: number;
@@ -164,7 +173,9 @@ export class Enemy {
     // RaidMap 的 yaw 沿用玩家的慣例（forward = (-sin yaw, -cos yaw)）；敵人內部 forward = (sin f, cos f)
     this.facing = (spawn.yaw ?? 0) + Math.PI;
     this.weaponId = pickWeapon(def);
-    this.stats = WEAPON_STATS[this.weaponId];
+    this.mods = rollEnemyMods(def, this.weaponId, this.rng);
+    this.eff = effectiveWeapon(this.weaponId, this.mods);
+    this.stats = this.eff.stats;
     this.hp = def.hp;
     this.armorDur = def.armorId ? ARMOR_STATS[def.armorId].durability : 0;
     const hm = rollEnemyHelmet(def, (id) => HELMET_STATS[id]?.durability ?? 0, this.rng);
@@ -242,8 +253,9 @@ export class Enemy {
       }
     }
     if (this.brain.engaged) return 'heard';
-    // 槍聲能判斷方向，但距離越遠誤差越大
-    this.brain.hear(this.noisePoint(at, heardDist * (ev.kind === 'shot' ? 0.12 : 0.05)));
+    // 槍聲能判斷方向，但距離越遠誤差越大；滅音槍聲又悶又難定位：誤差大很多（至少 5m）
+    const err = heardDist * (ev.kind === 'shot' ? 0.12 : 0.05);
+    this.brain.hear(this.noisePoint(at, ev.suppressed ? Math.max(5, err * SUPPRESSED_ERR_K) : err));
     return 'heard';
   }
 
@@ -367,17 +379,20 @@ export class Enemy {
       this.canSee = false; this.gain = 0; this.hasLos = false;
       if (pl.alive) {
         const range = def.sightRange * (brain.engaged ? 1.6 : 1);
-        if (dist <= range * 1.05) {
+        const light = ctx.lightAt(pl.feet);
+        // 手電筒 / 雷射開著：看得更遠、更快發現（暗處效果最大）
+        const tv = tacticalVision(light, !!pl.flashlight, !!pl.laser);
+        if (dist <= range * 1.05 * tv.range) {
           const los = ctx.mover.los(this.eye, pl.eye);
           this.hasLos = los;
           const inFov = brain.engaged || inFieldOfView(this.facing, dx, dz, def.fov) || dist < 2;
           if (los && inFov) {
             this.canSee = true;
             const ang = Math.abs(normAngle(Math.atan2(dx, dz) - this.facing));
-            const light = ctx.lightAt(pl.feet);
             this.gain = brain.engaged ? 1 : visionGain(def.reaction * DIFFICULTY[this.difficulty].reaction, range, {
               dist, offAxis: Math.min(1, ang / ((def.fov * Math.PI) / 360)),
               crouching: pl.crouching, sprinting: pl.sprinting, moving: pl.moving, light,
+              flashlight: pl.flashlight, laser: pl.laser,
             });
             if (this.gain <= 0) this.canSee = false;
           }
@@ -649,11 +664,13 @@ export class Enemy {
     const muzzle = this.muzzle(new THREE.Vector3());
     const aim = new THREE.Vector3(pl.feet.x, pl.feet.y + (pl.crouching ? 0.6 : 1.15), pl.feet.z);
     const dir = new THREE.Vector3().subVectors(aim, muzzle).normalize();
+    // 同一套 noise 規則：滅音器 / 制退器改變槍聲距離（loudness）
     ctx.bus.emit('noise', {
       kind: 'shot', position: { x: muzzle.x, y: muzzle.y, z: muzzle.z }, source: this.id, weaponId: this.weaponId,
       direction: { x: dir.x, y: dir.y, z: dir.z }, surface: ctx.surfaceAt(this.pos),
+      ...(this.eff.loudness !== 1 ? { loudness: this.eff.loudness } : {}), ...(this.eff.suppressed ? { suppressed: true } : {}),
     });
-    ctx.fx.muzzleFlash(muzzle, 0.5);
+    ctx.fx.muzzleFlash(muzzle, 0.5 * this.eff.flash);
 
     let p = scaledAccuracy(accuracyAt(def.accuracy, dist), this.difficulty);
     if (pl.sprinting) p *= 0.7; else if (pl.moving) p *= 0.85;

@@ -122,8 +122,8 @@ export class TraderPanel implements Panel {
     for (const { loc, stack } of list) {
       const sel = ctx.selection?.kind === 'sell' && ctx.selection.loc.c === loc.c && ctx.selection.loc.i === loc.i;
       const where = loc.c === 'carried' ? '背包' : '保險袋';
-      const unit = eco.traderSellQuote(stack.id, 1);
-      this.listEl.appendChild(this.row(stack, fmtNtd(eco.traderSellQuote(stack.id, stack.qty)), `${where} ・ 單價 ${fmtNtd(unit)}`, sel, () => {
+      const unit = eco.traderSellQuote(stack.id, 1, stack.mods);
+      this.listEl.appendChild(this.row(stack, fmtNtd(eco.traderSellQuote(stack.id, stack.qty, stack.mods)), `${where} ・ 單價 ${fmtNtd(unit)}`, sel, () => {
         ui.audio.playUi('click', 0.4);
         ctx.select({ kind: 'sell', loc });
       }, `${loc.c}:${loc.i}`));
@@ -164,8 +164,8 @@ export class TraderPanel implements Panel {
     const def = getItem(stack.id)!;
     const trader = getTrader(this.eraId)!;
     const rate = traderSellRate(trader, stack.id, eco.today());
-    const gain = eco.traderSellQuote(stack.id, ctx.qty);
-    wrap.appendChild(itemInfo(ctx, stack, { price: { label: '收購價（單件）', value: eco.traderSellQuote(stack.id, 1), fmt: fmtNtd } }));
+    const gain = eco.traderSellQuote(stack.id, ctx.qty, stack.mods);
+    wrap.appendChild(itemInfo(ctx, stack, { price: { label: '收購價（單件）', value: eco.traderSellQuote(stack.id, 1, stack.mods), fmt: fmtNtd } }));
     if (rate) {
       const future = def.category === 'future_goods' ? `在未來只值 ${fmtCredits(eco.sellPriceOf(stack.id))}，在這裡高價收購。` : '商人對這種東西沒興趣，只肯出零頭。';
       wrap.appendChild(el('p', 'hint', `${future}\n原價收購額度：前 ${rate.fullUnits} 件，之後每件只付 ${Math.round(trader.overstockRate * 100)}%。`));

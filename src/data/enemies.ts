@@ -1,4 +1,5 @@
 import type { EnemyKind } from '../world/RaidMap';
+import { canMount, type ModSlot, type WeaponMods } from './attachments';
 
 export interface EnemyDef {
   kind: EnemyKind;
@@ -47,6 +48,8 @@ export interface EnemyDef {
   extraLoot: [string, number, [number, number]][];
   /** 護甲掉落機率 */
   armorDrop: number;
+  /** 武器配件：每個槽位依序擲一次骰（[配件 id, 機率]，機率累加；裝不上這把武器的略過） */
+  loadout?: Partial<Record<ModSlot, [string, number][]>>;
 }
 
 export const ENEMIES: Record<EnemyKind, EnemyDef> = {
@@ -74,6 +77,7 @@ export const ENEMIES: Record<EnemyKind, EnemyDef> = {
     model: 'enemy_soldier', height: 1.8, tint: [1.25, 0.55, 0.5],
     tactics: { sneak: 0.3, rush: 1.3, flank: 0.8 }, // 莽撞：很少偷襲，愛趁你換彈衝過來
     extraLoot: [['ammo_pistol', 0.4, [10, 24]], ['brick_phone', 0.15, [1, 1]], ['chronite_shard', 0.1, [1, 1]]], armorDrop: 0.6,
+    loadout: { grip: [['att_grip', 0.22]], mag: [['att_extmag', 0.2]], sight: [['att_reddot', 0.08]] },
   },
   rival_agent: {
     kind: 'rival_agent', name: '敵對企業穿越者', hp: 110, armorId: 'armor_3',
@@ -87,6 +91,12 @@ export const ENEMIES: Record<EnemyKind, EnemyDef> = {
     model: 'enemy_robot_gunner', height: 1.9,
     tactics: { sneak: 1.4, rush: 1.0, flank: 1.4 }, // 訓練有素：最常蹲走偷襲與包抄
     extraLoot: [['chronite_shard', 0.7, [1, 3]], ['chronite', 0.3, [1, 1]], ['quantum_chip', 0.12, [1, 1]], ['medkit', 0.4, [1, 1]], ['ammo_rifle', 0.5, [10, 30]]], armorDrop: 1,
+    // 步槍通常裝紅點或 2 倍鏡（約 8 成），部分裝滅音器
+    loadout: {
+      sight: [['att_reddot', 0.4], ['att_scope2x', 0.28], ['att_holo', 0.12]],
+      muzzle: [['att_suppressor', 0.28], ['att_brake', 0.12]],
+      grip: [['att_grip', 0.2]],
+    },
   },
 };
 
@@ -151,4 +161,18 @@ export function rollEnemyHelmet(def: EnemyDef, durMax: (id: string) => number, r
   if (!h || rng() >= h.chance) return null;
   const [lo, hi] = h.durRange;
   return { id: h.id, dur: Math.max(1, Math.round(durMax(h.id) * (lo + (hi - lo) * rng()))) };
+}
+
+/** 擲出這個敵人的武器配件（警衛沒有 loadout = 空手）。rng 預設 Math.random */
+export function rollEnemyMods(def: Pick<EnemyDef, 'loadout'>, weaponId: string, rng: () => number = Math.random): WeaponMods {
+  const out: WeaponMods = {};
+  for (const [slot, list] of Object.entries(def.loadout ?? {}) as [ModSlot, [string, number][]][]) {
+    const r = rng();
+    let acc = 0;
+    for (const [id, p] of list) {
+      acc += p;
+      if (r < acc) { if (canMount(weaponId, id)) out[slot] = id; break; }
+    }
+  }
+  return out;
 }

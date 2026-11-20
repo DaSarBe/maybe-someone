@@ -114,7 +114,7 @@ export class ShopPanel implements Panel {
     for (const { loc, stack } of shown) {
       const sel = ctx.selection?.kind === 'sell' && ctx.selection.loc.c === loc.c && ctx.selection.loc.i === loc.i;
       const where = loc.c === 'stash' ? '倉庫' : '背包';
-      this.listEl.appendChild(this.row(stack, fmtCredits(ui.economy.valueOf(stack)), `${where} ・ 單價 ${fmtCredits(ui.economy.sellPriceOf(stack.id))}`, sel, () => {
+      this.listEl.appendChild(this.row(stack, fmtCredits(ui.economy.valueOf(stack)), `${where} ・ 單價 ${fmtCredits(ui.economy.valueOf({ ...stack, qty: 1 }))}`, sel, () => {
         ui.audio.playUi('click', 0.4);
         ctx.select({ kind: 'sell', loc });
       }, `${loc.c}:${loc.i}`));
@@ -150,7 +150,7 @@ export class ShopPanel implements Panel {
     wrap.appendChild(itemInfo(ctx, stack));
     const actions = el('div', 'actions');
     if (stack.qty > 1) actions.appendChild(qtyStepper(ctx, stack.qty));
-    const gain = ui.economy.sellPriceOf(stack.id) * ctx.qty;
+    const gain = ui.economy.valueOf({ ...stack, qty: ctx.qty });
     const sell = btn(`出售 ${fmtCredits(gain)}`, () => {
       const name = getItem(stack.id)!.name;
       if (ui.report(ui.economy.sell(loc, ctx.qty), `已出售 ${name} × ${ctx.qty}（+${fmtCredits(gain)}）`)) ctx.select(null);

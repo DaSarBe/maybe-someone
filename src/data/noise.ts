@@ -27,8 +27,10 @@ export interface NoiseEvent {
   source: string;
   /** 腳下材質（腳步、落地、彈殼） */
   surface?: Surface;
-  /** 距離倍率（預設 1；之後滅音器可設 0.3） */
+  /** 距離倍率（預設 1）：滅音器 0.25、制退器 1.1（見 data/attachments.ts），安靜搜刮 0.5 */
   loudness?: number;
+  /** 滅音槍聲：聲音比較悶、敵人只能大概判斷方向 */
+  suppressed?: boolean;
   weaponId?: string;
   /** 落地的下落速度（m/s） */
   fallSpeed?: number;

@@ -1,10 +1,11 @@
+import { ATTACHMENTS, canMount, modIds, type ModSlot } from '../data/attachments';
 import { TEST_MAP_DURATION, getEra } from '../data/eras';
 import { ARMOR_STATS, HELMET_STATS } from '../data/gear';
 import { SHOP_CATEGORIES, getItem } from '../data/items';
 import { getUpgrade, type UpgradeId } from '../data/upgrades';
 import { WEAPON_STATS } from '../data/weapons';
 import type { ItemDef } from '../data/types';
-import { Inventory, stackWeight, type ItemStack, type Slot } from '../items/Inventory';
+import { Inventory, cloneStack, stackWeight, type ItemStack, type Slot } from '../items/Inventory';
 import {
   EQUIP_SLOTS, PROFILE_KEY, carriedSpec, createDefaultProfile, equipmentWeight, fitProfile, itemMaxDur,
   migrateProfile, raidDuration, safeCapacity, searchTimeScale, secureCapacity, stashCapacity,
@@ -17,11 +18,13 @@ import { rollTraderStock, traderSellTotal, type TraderOffer } from './Trader';
 
 export type ContainerId = 'stash' | 'carried' | 'secure' | 'safe';
 export type Loc = { c: ContainerId; i: number };
+/** 要改裝的武器：裝備欄上的，或某個容器格裡的 */
+export type WeaponRef = { equip: EquipSlot } | { loc: Loc };
 
 export type FailCode =
   | 'invalid' | 'no_credits' | 'full' | 'overweight' | 'in_raid' | 'not_in_raid' | 'locked'
   | 'max_level' | 'not_equippable' | 'not_for_sale' | 'already_in_raid'
-  | 'no_trader' | 'no_stock' | 'no_currency' | 'not_tradable';
+  | 'no_trader' | 'no_stock' | 'no_currency' | 'not_tradable' | 'incompatible';
 
 export type Result<T extends object = object> = ({ ok: true } & T) | { ok: false; code: FailCode; reason: string };
 
@@ -41,6 +44,7 @@ const REASONS: Record<FailCode, string> = {
   no_stock: '商人的庫存不足',
   no_currency: '舊台幣不夠',
   not_tradable: '商人不收這個',
+  incompatible: '這個配件不能裝在這把武器上',
 };
 
 const fail = (code: FailCode, reason?: string): { ok: false; code: FailCode; reason: string } => ({
@@ -63,7 +67,6 @@ function equipSlotFor(def: ItemDef, requested?: EquipSlot): EquipSlot | null {
 const freshDur = (def: ItemDef): number | undefined =>
   def.category === 'armor' ? ARMOR_STATS[def.id]?.durability : def.category === 'helmet' ? HELMET_STATS[def.id]?.durability : undefined;
 
-const cloneStack = (s: ItemStack, qty = s.qty): ItemStack => (s.dur === undefined ? { id: s.id, qty } : { id: s.id, qty, dur: s.dur });
 
 /**
  * 經濟與存檔的唯一入口。UI 與遊戲場景只能呼叫這裡，不能直接改 Profile。
@@ -95,7 +98,10 @@ export class EconomyService {
   today(): string { return dateKey(this.now()); }
   sellPriceOf(id: string): number { return sellPrice(id, this.today()); }
   buyPriceOf(id: string): number { return buyPrice(id, this.today()); }
-  valueOf(s: ItemStack): number { return this.sellPriceOf(s.id) * s.qty; }
+  /** 堆疊的估價：武器要加上已安裝配件的價值 */
+  valueOf(s: ItemStack): number {
+    return (this.sellPriceOf(s.id) + modIds(s.mods).reduce((n, id) => n + this.sellPriceOf(id), 0)) * s.qty;
+  }
   valueOfAll(list: (ItemStack | null)[]): number {
     return list.reduce((n, s) => n + (s ? this.valueOf(s) : 0), 0);
   }
@@ -207,7 +213,8 @@ export class EconomyService {
       if (!s) return fail('invalid');
       const n = qty ?? s.qty;
       if (!Number.isInteger(n) || n < 1 || n > s.qty) return fail('invalid');
-      const gain = sellPrice(s.id, dateKey(this.now())) * n;
+      const day = dateKey(this.now());
+      const gain = (sellPrice(s.id, day) + modIds(s.mods).reduce((m, id) => m + sellPrice(id, day), 0)) * n;
       inv.takeAt(from.i, n);
       p.credits += gain;
       return { ok: true, gain };
@@ -252,7 +259,7 @@ export class EconomyService {
           left -= put;
         }
       }
-      if (left > 0) left = dst.add(s.id, left, s.dur);
+      if (left > 0) left = dst.add(s.id, left, s.dur, s.mods);
       const moved = n - left;
       if (moved <= 0) return fail(this.whyFull(dst, s.id));
       src.takeAt(from.i, moved);
@@ -363,6 +370,100 @@ export class EconomyService {
     });
   }
 
+  // ---------------------------------------------------------------- 配件（只能在基地改槍）
+  /** 取得要改裝的武器堆疊（裝備欄或某個容器格） */
+  private weaponAt(p: Profile, ref: WeaponRef): ItemStack | null {
+    const s = 'equip' in ref ? p.equipment[ref.equip] : this.inv(p, ref.loc.c).slots[ref.loc.i] ?? null;
+    return s && WEAPON_STATS[s.id] ? s : null;
+  }
+
+  /** 卸下的配件放進倉庫，倉庫放不下就放背包；都放不下回傳 false */
+  private stowPart(p: Profile, id: string, prefer: ContainerId = 'stash'): boolean {
+    const order: ContainerId[] = prefer === 'stash' ? ['stash', 'carried'] : [prefer, 'stash', 'carried'];
+    for (const c of order) if (this.inv(p, c).add(id, 1) === 0) return true;
+    return false;
+  }
+
+  /** 改槍後彈匣超過新容量：多的子彈換回彈藥放進倉庫（倉庫可暫時超量，不會弄丟） */
+  private trimMagazine(p: Profile, w: ItemStack): void {
+    const max = itemMaxDur(w.id, w.mods);
+    if (w.dur === undefined || w.dur <= max) return;
+    const extra = w.dur - max;
+    w.dur = max;
+    this.inv(p, 'stash').forceAdd(WEAPON_STATS[w.id].ammoType, extra);
+  }
+
+  /** 這個配件能不能裝在這把武器上（不改動任何東西，UI 判斷用） */
+  canInstall(weaponId: string, attId: string): boolean { return canMount(weaponId, attId); }
+
+  /**
+   * 安裝配件：從容器格取 1 個配件裝到武器上。同槽位原本的配件放回倉庫（放不下放背包）。
+   * 只能在基地操作；配件必須在相容表內。
+   */
+  installMod(weapon: WeaponRef, from: Loc): Result<{ slot: ModSlot; replaced: string | null }> {
+    return this.tx((p) => {
+      if (p.raid) return fail('in_raid', 'Raid 中無法拆裝配件，只能在基地改槍');
+      if (!this.accessible(p, from.c)) return fail('in_raid');
+      const w = this.weaponAt(p, weapon);
+      if (!w) return fail('invalid');
+      const src = this.inv(p, from.c);
+      const part = src.slots[from.i];
+      if (!part || !ATTACHMENTS[part.id]) return fail('invalid');
+      if (!canMount(w.id, part.id)) return fail('incompatible');
+      const slot = ATTACHMENTS[part.id].slot;
+      src.takeAt(from.i, 1);
+      const old = w.mods?.[slot] ?? null;
+      w.mods = { ...(w.mods ?? {}), [slot]: part.id };
+      if (old && !this.stowPart(p, old, from.c)) return fail('full', '倉庫與背包都放不下換下來的配件');
+      this.trimMagazine(p, w);
+      return { ok: true, slot, replaced: old };
+    });
+  }
+
+  /** 卸下某個槽位的配件，放進指定容器（預設倉庫，放不下改放背包） */
+  removeMod(weapon: WeaponRef, slot: ModSlot, dest: ContainerId = 'stash'): Result<{ part: string }> {
+    return this.tx((p) => {
+      if (p.raid) return fail('in_raid', 'Raid 中無法拆裝配件，只能在基地改槍');
+      const w = this.weaponAt(p, weapon);
+      if (!w) return fail('invalid');
+      const id = w.mods?.[slot];
+      if (!id) return fail('invalid');
+      const mods = { ...w.mods };
+      delete mods[slot];
+      if (Object.keys(mods).length) w.mods = mods; else delete w.mods;
+      if (!this.stowPart(p, id, dest)) return fail('full', '倉庫與背包都放不下這個配件');
+      this.trimMagazine(p, w);
+      return { ok: true, part: id };
+    });
+  }
+
+  /** 直接向黑市購買配件並裝到武器上（改槍台的「購買並安裝」）。同槽位原本的配件放回倉庫 */
+  buyAndInstallMod(weapon: WeaponRef, attId: string): Result<{ cost: number; slot: ModSlot }> {
+    return this.tx((p) => {
+      if (p.raid) return fail('in_raid');
+      const def = getItem(attId);
+      if (!def || !ATTACHMENTS[attId]) return fail('invalid');
+      if (!SHOP_CATEGORIES.includes(def.category)) return fail('not_for_sale');
+      const w = this.weaponAt(p, weapon);
+      if (!w) return fail('invalid');
+      if (!canMount(w.id, attId)) return fail('incompatible');
+      const cost = buyPrice(attId, dateKey(this.now()));
+      if (cost > p.credits) return fail('no_credits');
+      const slot = ATTACHMENTS[attId].slot;
+      const old = w.mods?.[slot] ?? null;
+      w.mods = { ...(w.mods ?? {}), [slot]: attId };
+      if (old && !this.stowPart(p, old)) return fail('full', '倉庫與背包都放不下換下來的配件');
+      p.credits -= cost;
+      this.trimMagazine(p, w);
+      return { ok: true, cost, slot };
+    });
+  }
+
+  /** 讀取武器目前的配件（UI 用；找不到回傳 null） */
+  weaponStack(ref: WeaponRef): ItemStack | null {
+    return this.weaponAt(this.p, ref);
+  }
+
   // ---------------------------------------------------------------- 基地升級
   upgrade(id: UpgradeId): Result<{ level: number; cost: number }> {
     return this.tx((p) => {
@@ -382,7 +483,11 @@ export class EconomyService {
   // ---------------------------------------------------------------- Raid 流程
   private bodyCounts(p: Profile): Record<string, number> {
     const counts: Record<string, number> = {};
-    const add = (s: ItemStack | null) => { if (s) counts[s.id] = (counts[s.id] ?? 0) + s.qty; };
+    const add = (s: ItemStack | null) => {
+      if (!s) return;
+      counts[s.id] = (counts[s.id] ?? 0) + s.qty;
+      for (const m of modIds(s.mods)) counts[m] = (counts[m] ?? 0) + s.qty;
+    };
     p.carried.forEach(add);
     p.secure.forEach(add);
     EQUIP_SLOTS.forEach((k) => add(p.equipment[k]));
@@ -403,12 +508,12 @@ export class EconomyService {
   }
 
   /** Raid 中撿到東西：放進背包。放不下一部分時回傳實際拿到的數量 */
-  lootItem(id: string, qty: number, dur?: number): Result<{ taken: number }> {
+  lootItem(id: string, qty: number, dur?: number, mods?: ItemStack['mods']): Result<{ taken: number }> {
     return this.tx((p) => {
       if (!p.raid) return fail('not_in_raid');
       if (!getItem(id) || !Number.isInteger(qty) || qty < 1) return fail('invalid');
       const inv = this.inv(p, 'carried');
-      const left = inv.add(id, qty, dur);
+      const left = inv.add(id, qty, dur, mods);
       if (left >= qty) return fail(this.whyFull(inv, id), this.whyFull(inv, id) === 'full' ? '背包已滿' : undefined);
       return { ok: true, taken: qty - left };
     });
@@ -438,7 +543,7 @@ export class EconomyService {
   autoPickup(stack: ItemStack, opts: { ammo: boolean; chronite: boolean }): Result<{ wanted: boolean; taken: number }> {
     if (!this.p.raid) return fail('not_in_raid');
     if (!this.isAutoPickup(stack.id, opts)) return { ok: true, wanted: false, taken: 0 };
-    const r = this.lootItem(stack.id, stack.qty, stack.dur);
+    const r = this.lootItem(stack.id, stack.qty, stack.dur, stack.mods);
     if (!r.ok) return fail('full', '背包已滿');
     return { ok: true, wanted: true, taken: r.taken };
   }
@@ -454,7 +559,7 @@ export class EconomyService {
       if (!raid) return fail('not_in_raid');
       const day = dateKey(this.now());
       const stash = this.inv(p, 'stash');
-      const valueOf = (list: ItemStack[]) => list.reduce((n, s) => n + sellPrice(s.id, day) * s.qty, 0);
+      const valueOf = (list: ItemStack[]) => list.reduce((n, s) => n + (sellPrice(s.id, day) + modIds(s.mods).reduce((m, id) => m + sellPrice(id, day), 0)) * s.qty, 0);
       const body = [...p.carried, ...p.secure].filter((s): s is ItemStack => !!s);
       const equipped = EQUIP_SLOTS.map((k) => p.equipment[k]).filter((s): s is ItemStack => !!s);
       let items: ItemStack[] = [];
@@ -466,13 +571,13 @@ export class EconomyService {
           const gain = n - (raid.snapshot[id] ?? 0);
           if (gain > 0) items.push({ id, qty: gain });
         }
-        body.forEach((s) => stash.forceAdd(s.id, s.qty, s.dur));
+        body.forEach((s) => stash.forceAdd(s.id, s.qty, s.dur, s.mods));
         p.stats.extracts++;
         p.stats.extractedValue += valueOf(items);
       } else {
         items = [...p.carried.filter((s): s is ItemStack => !!s), ...equipped];
         kept = p.secure.filter((s): s is ItemStack => !!s);
-        kept.forEach((s) => stash.forceAdd(s.id, s.qty, s.dur));
+        kept.forEach((s) => stash.forceAdd(s.id, s.qty, s.dur, s.mods));
         for (const k of EQUIP_SLOTS) p.equipment[k] = null;
         p.stats.deaths++;
         p.stats.lostValue += valueOf(items);
@@ -500,11 +605,12 @@ export class EconomyService {
   }
 
   /** 賣出報價：在目前 Raid 已賣出數量的基礎上，賣 qty 件可拿到多少舊台幣 */
-  traderSellQuote(itemId: string, qty: number): number {
+  traderSellQuote(itemId: string, qty: number, mods?: ItemStack['mods']): number {
     const raid = this.p.raid;
     const def = raid ? getTrader(raid.era) : undefined;
     if (!raid || !def) return 0;
-    return traderSellTotal(def, itemId, qty, raid.trade?.sold[itemId] ?? 0, dateKey(this.now()));
+    const day = dateKey(this.now());
+    return [itemId, ...modIds(mods)].reduce((n, id) => n + traderSellTotal(def, id, qty, raid.trade?.sold[id] ?? 0, day), 0);
   }
 
   /** 商人的貨幣（舊台幣）：背包裡有多少 */
@@ -528,12 +634,16 @@ export class EconomyService {
       const n = qty ?? s.qty;
       if (!Number.isInteger(n) || n < 1 || n > s.qty) return fail('invalid');
       raid.trade ??= { bought: {}, sold: {} };
-      const gain = traderSellTotal(def, s.id, n, raid.trade.sold[s.id] ?? 0, dateKey(this.now()));
+      const day = dateKey(this.now());
+      // 武器上的配件一起賣（各自計算「本場已賣出」的飽和）
+      const parts: { id: string; qty: number }[] = [{ id: s.id, qty: n }, ...modIds(s.mods).map((id) => ({ id, qty: n }))];
+      let gain = 0;
+      for (const part of parts) gain += traderSellTotal(def, part.id, part.qty, raid.trade.sold[part.id] ?? 0, day);
       if (gain < 1) return fail('not_tradable');
       inv.takeAt(from.i, n);
       const carried = this.inv(p, 'carried');
       if (carried.add(def.currency, gain) > 0) return fail('full', '背包放不下這麼多舊台幣');
-      raid.trade.sold[s.id] = (raid.trade.sold[s.id] ?? 0) + n;
+      for (const part of parts) raid.trade.sold[part.id] = (raid.trade.sold[part.id] ?? 0) + part.qty;
       return { ok: true, gain, sold: n };
     });
   }
@@ -587,7 +697,7 @@ export class EconomyService {
   setEquipState(slot: EquipSlot, dur: number): void {
     const e = this.p.equipment[slot];
     if (!e) return;
-    const max = itemMaxDur(e.id);
+    const max = itemMaxDur(e.id, e.mods);
     const v = Math.max(0, Math.min(max, Math.round(dur)));
     if (e.dur === v) return;
     e.dur = v;

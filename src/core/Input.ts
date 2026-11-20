@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { defaultControls, type ControlSettings } from '../settings/ControlSettings';
 
 export type Action = 'jump' | 'crouch' | 'sprint' | 'fire' | 'aim' | 'interact' | 'reload' | 'inventory'
-  | 'weapon1' | 'weapon2' | 'weaponSwap' | 'heal';
+  | 'weapon1' | 'weapon2' | 'weaponSwap' | 'heal' | 'flashlight';
 
 const MOUSE_SENS = 0.0022;
 
@@ -184,7 +184,7 @@ export class Input {
     const keyAction: Record<string, Action> = {
       Space: 'jump', KeyC: 'crouch', ControlLeft: 'crouch', ShiftLeft: 'sprint', ShiftRight: 'sprint',
       KeyE: 'interact', KeyR: 'reload', Tab: 'inventory',
-      Digit1: 'weapon1', Digit2: 'weapon2', KeyQ: 'weaponSwap', Digit4: 'heal',
+      Digit1: 'weapon1', Digit2: 'weapon2', KeyQ: 'weaponSwap', Digit4: 'heal', KeyT: 'flashlight',
     };
     const updateMove = () => {
       const k = this.keys;

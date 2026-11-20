@@ -499,24 +499,24 @@ describe('helmet items', () => {
 });
 
 describe('save migration', () => {
-  it('current version is 2 and defaults include an empty helmet slot', () => {
-    expect(PROFILE_VERSION).toBe(2);
+  it('current version is 3 and defaults include an empty helmet slot', () => {
+    expect(PROFILE_VERSION).toBe(3);
     expect(createDefaultProfile().equipment.helmet).toBeNull();
     expect(EQUIP_SLOTS).toContain('helmet');
   });
-  it('v1 saves (no helmet field) get an empty helmet slot and version 2, keeping everything else', () => {
+  it('v1 saves (no helmet field) get an empty helmet slot and the current version, keeping everything else', () => {
     const v1 = { ...createDefaultProfile(), version: 1, credits: 4321 } as unknown as Record<string, unknown>;
     delete (v1.equipment as Record<string, unknown>).helmet;
     expect('helmet' in (v1.equipment as object)).toBe(false);
     const p = migrateProfile(v1);
-    expect(p.version).toBe(2);
+    expect(p.version).toBe(PROFILE_VERSION);
     expect(p.equipment.helmet).toBeNull();
     expect(p.credits).toBe(4321);
     expect(p.equipment.secondary).toEqual({ id: 'pistol', qty: 1 });
   });
   it('v0 saves migrate all the way', () => {
     const p = migrateProfile({ money: 999, stash: [{ id: 'bandage', count: 2 }] });
-    expect(p.version).toBe(2);
+    expect(p.version).toBe(PROFILE_VERSION);
     expect(p.credits).toBe(999);
     expect(p.equipment.helmet).toBeNull();
   });
@@ -526,7 +526,7 @@ describe('save migration', () => {
     delete (v1.equipment as Record<string, unknown>).helmet;
     save.set(PROFILE_KEY, v1);
     const { eco } = makeEconomy(save);
-    expect(eco.profile.version).toBe(2);
+    expect(eco.profile.version).toBe(PROFILE_VERSION);
     expect(eco.profile.equipment.helmet).toBeNull();
   });
   it('fitProfile keeps a helmet with durability and drops one in the wrong slot', () => {

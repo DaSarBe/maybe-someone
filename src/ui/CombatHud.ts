@@ -2,6 +2,41 @@ import { HELMET_VIGNETTE } from '../data/helmet';
 import { el } from './dom';
 
 const ROMAN = ['', 'I', 'II', 'III', 'IV'];
+
+/** 倍鏡十字線（SVG，圓形視野內）：2 倍 = 粗外框 + 細十字；4 倍再加刻度與下方的測距線 */
+function reticleSvg(kind: '' | '2' | '4'): SVGElement {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '-100 -100 200 200');
+  svg.setAttribute('class', 'cb-scope-ret');
+  const line = (x1: number, y1: number, x2: number, y2: number, w: number): void => {
+    const l = document.createElementNS(NS, 'line');
+    l.setAttribute('x1', String(x1)); l.setAttribute('y1', String(y1)); l.setAttribute('x2', String(x2)); l.setAttribute('y2', String(y2));
+    l.setAttribute('stroke-width', String(w));
+    svg.appendChild(l);
+  };
+  // 外側粗線（四個方向）→ 細十字（中間留空）
+  for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]] as const) {
+    line(dx * 98, dy * 98, dx * 34, dy * 34, kind === '4' ? 2.2 : 3);
+    line(dx * 34, dy * 34, dx * 5, dy * 5, 0.7);
+  }
+  if (kind === '4') {
+    // 水平 / 垂直刻度（每 10 單位一格）與下方的測距線
+    for (let i = 1; i <= 3; i++) {
+      for (const sgn of [-1, 1]) {
+        line(sgn * (5 + i * 9), -2.2, sgn * (5 + i * 9), 2.2, 0.6);
+        line(-2.2, sgn * (5 + i * 9), 2.2, sgn * (5 + i * 9), 0.6);
+      }
+    }
+    line(-12, 46, 12, 46, 0.9);
+    line(-18, 62, 18, 62, 0.9);
+    line(-24, 78, 24, 78, 0.9);
+  }
+  const dot = document.createElementNS(NS, 'circle');
+  dot.setAttribute('r', kind === '4' ? '0.9' : '1.1');
+  svg.appendChild(dot);
+  return svg;
+}
 import type { LayoutManager } from './layout/LayoutManager';
 
 /** 戰鬥 HUD：準心（動態散佈）、命中標記、彈藥 / 生命 / 護甲、受傷暈影與方向指示、治療進度 */
@@ -23,19 +58,25 @@ export class CombatHud {
   private helmetFill = el('i');
   private helmetText = el('span');
   private flash = el('div', 'cb-flash');
+  private scope = el('div', 'cb-scope');
+  private scopeRing = el('div', 'cb-scope-ring');
+  private scopeZoom = el('b', 'cb-scope-zoom');
+  private scopeKind: '' | '2' | '4' = '';
   private hvig = el('div', 'cb-hvig');
   private flashT = 0;
   private healBar = el('i');
   private healWrap = el('div', 'cb-heal hidden');
   private hitTimer = 0;
   private vigTimer = 0;
-  private last = { gap: -1, ammo: '', hp: -1, armor: -1, helmet: '' };
+  private last = { gap: -1, ammo: '', hp: -1, armor: -1, helmet: '', xh: -1, scope: '' };
   /** 「換彈中」樣式掛在哪個元素上（電腦版是整個面板，手機版是彈藥框） */
   private ammoHost: HTMLElement = this.panel;
   private unbinds: (() => void)[] = [];
 
   /** layout：手機觸控版面。有的話，彈藥 / 血量 / 護甲 / 受擊方向各自獨立定位；沒有就用原本的整塊面板（電腦版）。 */
   constructor(parent: HTMLElement, touch: boolean, layout: LayoutManager | null = null) {
+    this.scopeRing.append(this.scopeZoom);
+    this.scope.appendChild(this.scopeRing);
     for (const c of ['t', 'b', 'l', 'r']) this.xh.appendChild(el('i', c));
     this.xh.appendChild(el('s'));
     for (const c of ['a', 'b', 'c', 'd']) this.hitm.appendChild(el('i', c));
@@ -69,12 +110,45 @@ export class CombatHud {
       if (touch) this.panel.classList.add('touch');
       this.root.append(this.hvig, this.vig, this.low, this.flash, this.dirs, this.xh, this.hitm, this.healWrap, this.panel);
     }
-    parent.appendChild(this.root);
+    // 倍鏡畫面獨立在 HUD 之下（z-index 9）：觸控按鈕與 HUD 仍然看得到、點得到
+    parent.append(this.scope, this.root);
   }
 
-  dispose(): void { this.unbinds.forEach((u) => u()); this.root.remove(); }
+  dispose(): void { this.unbinds.forEach((u) => u()); this.root.remove(); this.scope.remove(); }
 
-  setVisible(v: boolean): void { this.root.classList.toggle('hidden', !v); }
+  setVisible(v: boolean): void { this.root.classList.toggle('hidden', !v); this.scope.classList.toggle('hidden', !v); }
+
+  /**
+   * 瞄準：準心淡出（瞄準時改用槍上的瞄具對準，放開再淡入）；倍鏡額外蓋上倍鏡畫面。
+   * ads = 瞄準程度 0..1（已緩動）；scopeZoom = 0（不是倍鏡）或 2 / 4。
+   */
+  setAds(ads: number, scopeZoom: number): void {
+    const fade = Math.max(0, 1 - ads * 2.2);
+    const q = Math.round(fade * 50);
+    if (q !== this.last.xh) { this.last.xh = q; this.xh.style.opacity = String(q / 50); }
+    const kind = scopeZoom >= 4 ? '4' : scopeZoom >= 2 ? '2' : '';
+    const amount = kind ? ads : 0;
+    const on = amount > 0.02;
+    const key = `${kind}|${on ? Math.round(amount * 60) : 0}|${window.innerWidth}x${window.innerHeight}`;
+    if (key === this.last.scope) return;
+    this.last.scope = key;
+    this.scope.classList.toggle('on', on);
+    if (!on) return;
+    if (kind !== this.scopeKind) {
+      this.scopeKind = kind;
+      this.scopeRing.dataset.zoom = kind;
+      this.scopeRing.querySelector('svg')?.remove();
+      this.scopeRing.prepend(reticleSvg(kind));
+      this.scopeZoom.textContent = `${kind}×`;
+    }
+    const e = amount * amount * (3 - 2 * amount);
+    const H = window.innerHeight;
+    const d = H * (0.16 + 0.8 * e);
+    this.scopeRing.style.setProperty('--d', `${d}px`);
+    // 鏡框從槍上（畫面中心的小圈）放大到全螢幕；黑色外圈與十字線隨後淡入
+    this.scope.style.opacity = String(Math.min(1, Math.max(0, (amount - 0.2) / 0.5)));
+    this.scopeRing.style.setProperty('--ret', String(Math.min(1, Math.max(0, (amount - 0.7) / 0.25))));
+  }
 
   /** gapPx：準心中心到四條線的距離；onTarget：準心下有敵人 */
   setCrosshair(gapPx: number, onTarget: boolean, hasWeapon: boolean): void {
@@ -84,11 +158,11 @@ export class CombatHud {
     this.xh.classList.toggle('hidden', !hasWeapon);
   }
 
-  setWeapon(name: string, mag: number, magMax: number, reserve: number, reloading: boolean, reloadProgress: number, slotLabel: string): void {
-    const key = `${name}|${mag}|${reserve}|${reloading}|${slotLabel}`;
+  setWeapon(name: string, mag: number, magMax: number, reserve: number, reloading: boolean, reloadProgress: number, slotLabel: string, tactical = ''): void {
+    const key = `${name}|${mag}|${magMax}|${reserve}|${reloading}|${slotLabel}|${tactical}`;
     if (key !== this.last.ammo) {
       this.last.ammo = key;
-      this.wName.textContent = name ? `${slotLabel} ${name}` : '空手';
+      this.wName.textContent = name ? `${slotLabel} ${name}${tactical ? ` ・ ${tactical}` : ''}` : '空手';
       this.ammo.innerHTML = name
         ? `<b class="${mag === 0 ? 'empty' : mag <= Math.ceil(magMax * 0.25) ? 'low' : ''}">${mag}</b><span> / ${reserve}</span>`
         : '';

@@ -2,6 +2,8 @@ import { ARMOR_STATS, BACKPACK_STATS, HELMET_STATS } from '../data/gear';
 import { HELMET_TABLE } from '../data/helmet';
 import { getItem } from '../data/items';
 import { WEAPON_STATS } from '../data/weapons';
+import { modIds } from '../data/attachments';
+import { effectiveWeapon } from '../combat/WeaponMods';
 import type { ItemStack } from './Inventory';
 
 export type CompareDir = 'up' | 'down' | 'same';
@@ -56,11 +58,12 @@ export function compareGear(next: ItemStack, old: ItemStack | null): CompareRow[
     ];
   }
   if (nd.category === 'weapon') {
-    const n = WEAPON_STATS[next.id];
-    if (!n) return [];
-    const o = old ? WEAPON_STATS[old.id] : undefined;
+    if (!WEAPON_STATS[next.id]) return [];
+    // 含配件的數值（擴容彈匣的彈匣容量、滅音器的傷害…）
+    const n = effectiveWeapon(next.id, next.mods).stats;
+    const o = old && WEAPON_STATS[old.id] ? effectiveWeapon(old.id, old.mods).stats : undefined;
     const rows: CompareRow[] = [
-      row('傷害', o ? o.damage * o.pellets : null, n.damage * n.pellets, String),
+      row('傷害', o ? Math.round(o.damage * o.pellets * 10) / 10 : null, Math.round(n.damage * n.pellets * 10) / 10, String),
       row('射速', o?.fireRate ?? null, n.fireRate, (v) => `${v}`),
       row('彈匣', o?.magazine ?? null, n.magazine),
       row('內有', o ? (old!.dur ?? o.magazine) : null, next.dur ?? n.magazine, (v) => `${v} 發`),
@@ -70,6 +73,8 @@ export function compareGear(next: ItemStack, old: ItemStack | null): CompareRow[
       rows[0].to = `${n.damage}×${n.pellets}`;
       if (o) rows[0].from = `${o.damage}×${o.pellets}`;
     }
+    const nm = modIds(next.mods).length, om = old ? modIds(old.mods).length : null;
+    if (nm > 0 || (om ?? 0) > 0) rows.push(row('配件', om, nm, (v) => `${v} 件`));
     if (o && o.ammoType !== n.ammoType) {
       rows.push({ label: '彈藥', from: getItem(o.ammoType)?.name ?? o.ammoType, to: getItem(n.ammoType)?.name ?? n.ammoType, dir: 'same' });
     }

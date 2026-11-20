@@ -57,7 +57,7 @@ describe('default layout', () => {
     const stick = r.stick, fl = r.fireL;
     expect(fl.x).toBeGreaterThan(stick.x + stick.w * 0.7);
     expect(fl.y + fl.h / 2).toBeLessThan(stick.y + stick.h / 2);
-    for (const id of ['fireL', 'fireR', 'jump', 'aim', 'crouch', 'reload', 'interact', 'swap', 'heal', 'inventory', 'menu'] as const) {
+    for (const id of ['fireL', 'fireR', 'jump', 'aim', 'crouch', 'reload', 'interact', 'swap', 'heal', 'flashlight', 'inventory', 'menu'] as const) {
       expect(Math.min(r[id].w, r[id].h), id).toBeGreaterThanOrEqual(44);
     }
   });
@@ -162,5 +162,26 @@ describe('layout store persistence and migrate', () => {
     const b = cloneStore(a);
     b.slots[0].items.jump = { x: 0, y: 0, s: 1, o: 1 };
     expect(a.slots[0].items.jump).toBeUndefined();
+  });
+});
+
+describe('flashlight button', () => {
+  it('is part of the layout system, reachable and not overlapping anything in the default layout on every device', () => {
+    expect(ELEMENT_IDS).toContain('flashlight');
+    for (const [name, w, h, ins] of DEVICES) {
+      const safe = safeRect(w, h, ins);
+      const rects = resolveAll(defaultStore().slots[0], safe);
+      expect(findOverlaps(rects), name).toEqual([]);
+      expect(rects.flashlight.w, name).toBeGreaterThanOrEqual(44);
+      // 在左手拇指附近：搖桿的上方、左半螢幕
+      expect(rects.flashlight.x + rects.flashlight.w, name).toBeLessThan(safe.x + safe.w * 0.5);
+      expect(rects.flashlight.y + rects.flashlight.h, name).toBeLessThan(rects.stick.y);
+    }
+  });
+  it('migrates old layouts that do not know the button (default position, scale 1)', () => {
+    const old = defaultStore();
+    delete (old.slots[0].items as Record<string, unknown>).flashlight;
+    const m = migrateStore(JSON.parse(JSON.stringify(old)));
+    expect(itemOf(m.slots[0], 'flashlight')).toMatchObject({ s: 1, o: 1 });
   });
 });

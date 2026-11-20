@@ -100,3 +100,21 @@
 .nd-root { position: fixed; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; z-index: 18; }
 .nd-root.hidden { display: none; }
 .nd-canvas { position: absolute; left: -160px; top: -160px; pointer-events: none; }
+
+/* ===== 瞄準：準心淡出、倍鏡畫面 ===== */
+.cb-xh { transition: none; }
+.cb-scope { position: fixed; inset: 0; z-index: 9; opacity: 0; display: none; pointer-events: none; }
+.cb-scope.on { display: block; }
+.cb-scope.hidden { display: none !important; }
+/* 圓形視野：圓內透明（看得到放大後的世界），圓外用超大的陰影塗黑；--d 由 CombatHud 依瞄準程度放大 */
+.cb-scope-ring {
+  position: absolute; left: 50%; top: 50%; width: var(--d, 60px); height: var(--d, 60px);
+  margin: calc(var(--d, 60px) / -2) 0 0 calc(var(--d, 60px) / -2); border-radius: 50%;
+  box-shadow: 0 0 0 150vmax #020304, inset 0 0 0 4px #14171c, inset 0 0 0 6px #4b525d, inset 0 0 calc(var(--d, 60px) * 0.18) rgba(0,0,0,.7);
+}
+.cb-scope-ret { position: absolute; inset: 0; width: 100%; height: 100%; opacity: var(--ret, 0); }
+.cb-scope-ret line { stroke: #0a0b0d; stroke-linecap: butt; }
+.cb-scope-ret circle { fill: #c8281c; }
+.cb-scope-ring[data-zoom="4"] .cb-scope-ret circle { fill: #0a0b0d; }
+.cb-scope-ret { filter: drop-shadow(0 0 1px rgba(255,255,255,.55)); }
+.cb-scope-zoom { position: absolute; right: 17%; top: 15%; font: 700 12px/1 ui-monospace, Menlo, monospace; color: rgba(255,255,255,.7); opacity: var(--ret, 0); }

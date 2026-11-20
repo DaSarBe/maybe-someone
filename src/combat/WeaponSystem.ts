@@ -3,7 +3,9 @@ import type { GameBus } from '../core/EventBus';
 import type { NoiseEvent, NoiseKind } from '../data/noise';
 import type { Input } from '../core/Input';
 import { WEAPON_STATS } from '../data/weapons';
-import { BASE_FOV, WEAPON_HANDLING, type WeaponHandling } from '../data/weaponHandling';
+import { BASE_FOV, type WeaponHandling } from '../data/weaponHandling';
+import { LASER_HIP_SPREAD } from '../data/attachments';
+import { effectiveWeapon, lookScaleForFov, type EffectiveWeapon } from './WeaponMods';
 import { getItem } from '../data/items';
 import type { EconomyService } from '../economy/EconomyService';
 import type { EquipSlot } from '../items/Profile';
@@ -83,6 +85,12 @@ export class WeaponSystem {
   /** 換彈已發出的階段（0 卸彈匣、1 插彈匣、2 拉槍機）；依進度分段發出聲音 */
   private reloadStage = 0;
   private lastWritten: (number | null)[] = [null, null];
+  /** 各欄位武器套用配件後的數值、配件內容（偵測改裝）與戰術裝備開關 */
+  private eff: (EffectiveWeapon | null)[] = [null, null];
+  private modsKey: string[] = ['', ''];
+  private tacticalOn: boolean[] = [false, false];
+  private breath = 0;
+  private breathPrev = [0, 0];
   private flushTimer = 0;
   private dirty = false;
   private ammoSrc: AmmoSource;
@@ -107,7 +115,34 @@ export class WeaponSystem {
   }
 
   get current(): WeaponState | null { return this.slots[this.active]; }
-  get handling(): WeaponHandling | null { return this.current ? WEAPON_HANDLING[this.current.id] : null; }
+  /** 目前武器套用配件後的數值（沒有武器 = null） */
+  get effective(): EffectiveWeapon | null { return this.eff[this.active]; }
+  /** 目前武器的操作手感（含配件修正；雷射開著時腰射散佈降低） */
+  get handling(): WeaponHandling | null {
+    const e = this.effective;
+    if (!e) return null;
+    if (this.tacticalActive === 'laser') return { ...e.handling, spreadHip: e.handling.spreadHip * LASER_HIP_SPREAD };
+    return e.handling;
+  }
+  /** 開著的戰術裝備（手電筒 / 雷射）；沒裝或關著 = null */
+  get tacticalActive(): 'flashlight' | 'laser' | null {
+    const e = this.effective;
+    return e?.tactical && this.tacticalOn[this.active] ? e.tactical : null;
+  }
+  /** 目前瞄具：iron / reddot / holo / scope 與倍率（HUD 的倍鏡畫面用） */
+  get sight(): { kind: EffectiveWeapon['sight']; zoom: number } {
+    const e = this.effective;
+    return { kind: e?.sight ?? 'iron', zoom: e?.zoom ?? 1 };
+  }
+  /** 瞄準程度（已套用緩動）0..1 */
+  get adsAmount(): number { return this.ads * this.ads * (3 - 2 * this.ads); }
+  toggleTactical(): boolean {
+    const e = this.effective;
+    if (!e?.tactical) return false;
+    this.tacticalOn[this.active] = !this.tacticalOn[this.active];
+    this.d.vm.setTactical(this.tacticalOn[this.active]);
+    return true;
+  }
   get switching(): boolean { return this.switchT > 0; }
 
   hud(): WeaponHud {
@@ -128,22 +163,31 @@ export class WeaponSystem {
       if (!st || !WEAPON_STATS[st.id]) {
         if (cur) cur.cancelReload();
         this.slots[i] = null;
+        this.eff[i] = null;
+        this.modsKey[i] = '';
         this.lastWritten[i] = null;
         return;
       }
-      const stored = st.dur ?? WEAPON_STATS[st.id].magazine;
-      if (!cur || cur.id !== st.id || this.lastWritten[i] !== stored) {
-        this.slots[i] = new WeaponState(st.id, WEAPON_STATS[st.id], stored);
+      const eff = effectiveWeapon(st.id, st.mods);
+      const key = `${st.id}|${JSON.stringify(st.mods ?? {})}`;
+      const stored = st.dur ?? eff.stats.magazine;
+      if (!cur || cur.id !== st.id || this.lastWritten[i] !== stored || this.modsKey[i] !== key) {
+        if (cur && cur.id === st.id && this.modsKey[i] !== key) cur.cancelReload();
+        this.slots[i] = new WeaponState(st.id, eff.stats, stored);
         this.lastWritten[i] = stored;
+        if (this.modsKey[i] !== key) this.tacticalOn[i] = eff.tactical === 'laser';
       }
+      this.eff[i] = eff;
+      this.modsKey[i] = key;
     });
     if (!this.current) this.active = this.slots[0] ? 0 : this.slots[1] ? 1 : this.active;
     this.applyViewmodel();
   }
 
   private applyViewmodel(): void {
-    const h = this.handling;
-    this.d.vm.setWeapon(h ? h.style : null);
+    const e = this.effective;
+    this.d.vm.setWeapon(e ? e.handling.style : null, e?.mods);
+    this.d.vm.setTactical(!!e?.tactical && this.tacticalOn[this.active]);
   }
 
   /** 把彈匣寫回物品（換槍、開介面、撤離前） */
@@ -207,6 +251,7 @@ export class WeaponSystem {
     if (input.consumePress('weapon2')) this.select(1);
     if (input.consumePress('weaponSwap')) this.select(this.active === 0 ? 1 : 0);
     if (input.consumePress('reload')) this.tryReload();
+    if (input.consumePress('flashlight')) this.toggleTactical();
     if (input.consumePress('fire')) this.fireBuffer = 0.18;
 
     const cur = this.current;
@@ -238,7 +283,10 @@ export class WeaponSystem {
       camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 22);
       camera.updateProjectionMatrix();
     }
-    input.lookScale = (1 + (targetFov / BASE_FOV - 1) * 0.9) * this.assistScale;
+    // 視角靈敏度：倍鏡依視野（倍率）降低；其他瞄具沿用原本的曲線。再乘上操作設定的瞄準靈敏度（Input.addLook）
+    const eff = this.effective;
+    input.lookScale = (eff?.scopeFov ? lookScaleForFov(camera.fov) : 1 + (camera.fov / BASE_FOV - 1) * 0.9) * this.assistScale;
+    this.breathe(dt, eff, adsE);
     input.ads = this.ads;
     player.speedScale = (h ? 1 + (h.adsMoveScale - 1) * adsE : 1) * health.healMoveScale;
     player.sprintBlocked = this.ads > 0.2 || health.healing || (!!w && input.isDown('fire') && !w.reloading);
@@ -294,6 +342,23 @@ export class WeaponSystem {
     if (this.dirty && this.flushTimer > 3) { this.flushTimer = 0; this.flush(); }
   }
 
+  /**
+   * 倍鏡的呼吸晃動：用「差分」加到視角上（每幀加 offset(t) - offset(t - dt)），所以視線只會晃動、不會慢慢飄走。
+   * 倍率越高越明顯；蹲下減半。只在瞄準到底時作用。
+   */
+  private breathe(dt: number, eff: EffectiveWeapon | null, adsE: number): void {
+    const zoom = eff?.scopeFov ? eff.zoom : 0;
+    const amp = zoom > 1 && adsE > 0.9 ? 0.0016 * zoom * (this.d.player.state.crouching ? 0.5 : 1) : 0;
+    this.breath += dt;
+    const ox = Math.sin(this.breath * 1.55) * amp;
+    const oy = Math.sin(this.breath * 1.15 + 1.3) * amp * 1.3;
+    if (amp > 0 || this.breathPrev[0] !== 0 || this.breathPrev[1] !== 0) {
+      this.d.player.addView(ox - this.breathPrev[0], oy - this.breathPrev[1]);
+    }
+    this.breathPrev[0] = ox;
+    this.breathPrev[1] = oy;
+  }
+
   /** 準心螢幕像素間距（依目前散佈與 FOV 換算） */
   crosshairGapPx(viewHeight: number): number {
     const fov = this.d.camera.fov * DEG;
@@ -310,9 +375,16 @@ export class WeaponSystem {
     this.shotsFired++;
     this.dirty = true;
 
-    this.noise('shot', { weaponId: w.id, direction: { x: this.fwd.x, y: this.fwd.y, z: this.fwd.z }, surface: this.d.player.surface });
-    fx.muzzleFlash(this.muzzle.clone().addScaledVector(this.fwd, 0.15), 0.35);
-    vm.kick(w.stats.recoil * (this.ads > 0.5 ? 0.7 : 1) + 0.25);
+    // 槍聲：滅音器 ×0.25、制退器 ×1.1（loudness 乘在 data/noise.ts 的槍聲距離上）
+    const eff = this.effective;
+    const loud = eff?.loudness ?? 1;
+    this.noise('shot', {
+      weaponId: w.id, direction: { x: this.fwd.x, y: this.fwd.y, z: this.fwd.z }, surface: this.d.player.surface,
+      ...(loud !== 1 ? { loudness: loud } : {}), ...(eff?.suppressed ? { suppressed: true } : {}),
+    });
+    const flash = eff?.flash ?? 1;
+    fx.muzzleFlash(this.muzzle.clone().addScaledVector(this.fwd, 0.15), 0.35 * flash);
+    vm.kick(w.stats.recoil * (this.ads > 0.5 ? 0.7 : 1) + 0.25, flash);
 
     const stats = w.stats;
     const spreadNow = this.spread;

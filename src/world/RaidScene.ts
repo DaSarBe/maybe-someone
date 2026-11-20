@@ -7,6 +7,8 @@ import { preloadEnemyModel } from '../ai/EnemyModel';
 import { CombatFx } from '../combat/Fx';
 import { PlayerHealth } from '../combat/PlayerHealth';
 import { Viewmodel } from '../combat/Viewmodel';
+import { TacticalFx } from '../combat/TacticalFx';
+import { preloadAttachmentModels } from '../combat/AttachmentModels';
 import { preloadWeaponModels } from '../combat/WeaponModels';
 import { WeaponSystem } from '../combat/WeaponSystem';
 import { WorldTrace } from '../combat/WorldTrace';
@@ -120,6 +122,7 @@ export class RaidScene implements Scene {
   private mc: MobileControls | null = null;
   private beatT: Record<string, number> = {};
   private vm = new Viewmodel();
+  private tfx: TacticalFx | null = null;
   private trace!: WorldTrace;
   private loading: HTMLElement | null = null;
   private zone: ReverbZone | null = null;
@@ -204,7 +207,7 @@ export class RaidScene implements Scene {
     const touch = game.isTouch;
 
     const [map] = await Promise.all([
-      this.loader(), preloadEnemyModel('enemy_soldier'), preloadEnemyModel('enemy_robot_gunner'), preloadEnemyModel('npc_worker'), preloadWeaponModels(),
+      this.loader(), preloadEnemyModel('enemy_soldier'), preloadEnemyModel('enemy_robot_gunner'), preloadEnemyModel('npc_worker'), preloadWeaponModels(), preloadAttachmentModels(),
     ]);
     if (this.disposed) return;
     this.map = map;
@@ -259,6 +262,7 @@ export class RaidScene implements Scene {
     this.noiseHud = new NoiseIndicator(game.container, game.audio, touch ? game.layout : null, () => ({ ear: this.camera.position, yaw: this.player.facingYaw }));
     this.noiseHud.setEnabled(game.controls.get().soundIndicator);
     this.unsubs.push(game.controls.subscribe((c) => this.noiseHud?.setEnabled(c.soundIndicator)));
+    this.tfx = new TacticalFx(this.camera, this.scene);
     this.weapons = new WeaponSystem({
       bus: game.bus, input: game.input, player: this.player, camera: this.camera, eco, fx: this.fx,
       trace: this.trace, targets: this.enemies, vm: this.vm, health: this.health,
@@ -266,7 +270,7 @@ export class RaidScene implements Scene {
 
     this.menu = new PauseMenu(game.container, game.input, game.audio, {
       touch, debug: game.debug, game,
-      hint: 'WASD 移動（Shift 衝刺、C 蹲下、蹲下再按 Shift = 蹲跑）・ 左鍵射擊 ・ 右鍵瞄準 ・ R 換彈 ・ 1/2 或滾輪換槍 ・ 4 治療 ・ E 搜刮容器（點一下就開始）・ Tab 背包 ・ K 模擬死亡（測試）・ Esc 暫停|左側搖桿移動（蹲下後推到底 = 蹲跑）・ 右側拖曳轉視角 ・ 左右兩側射擊鍵（右側可拖曳轉視角）・ 瞄準、換彈、切換武器、治療 ・ 點「互動」搜刮',
+      hint: 'WASD 移動（Shift 衝刺、C 蹲下、蹲下再按 Shift = 蹲跑）・ 左鍵射擊 ・ 右鍵瞄準 ・ R 換彈 ・ T 手電筒 / 雷射 ・ 1/2 或滾輪換槍 ・ 4 治療 ・ E 搜刮容器（點一下就開始）・ Tab 背包 ・ K 模擬死亡（測試）・ Esc 暫停|左側搖桿移動（蹲下後推到底 = 蹲跑）・ 右側拖曳轉視角 ・ 左右兩側射擊鍵（右側可拖曳轉視角）・ 瞄準、換彈、切換武器、治療、燈（手電筒 / 雷射）・ 點「互動」搜刮',
       isBlocked: () => this.ui.isOpen,
       extra: [
         { label: '模擬死亡（測試）', onClick: () => this.end('death'), confirm: '再按一次確認：你會失去所有物品' },
@@ -321,6 +325,7 @@ export class RaidScene implements Scene {
     this.game.audio.setOccluder(null);
     this.noiseHud?.dispose();
     this.fx.dispose();
+    this.tfx?.dispose();
     this.ui.dispose();
     this.hud.dispose();
     this.chud.dispose();
@@ -444,7 +449,7 @@ export class RaidScene implements Scene {
     if (!table) return;
     const loot: Slot[] = buildCorpseLoot({
       def: e.def, weaponId: e.weaponId, mag: e.mag, reserve: e.reserve, ammoType: e.stats.ammoType, armorDur: e.armorDur,
-      helmet: e.helmetId ? { id: e.helmetId, dur: e.helmetDur } : null,
+      helmet: e.helmetId ? { id: e.helmetId, dur: e.helmetDur } : null, mods: e.mods,
     }, this.era);
     const group = new THREE.Group();
     group.position.copy(e.pos);
@@ -656,6 +661,8 @@ export class RaidScene implements Scene {
     pt.crouchRunning = s.crouchRunning && s.moving;
     pt.healing = this.health.healing;
     pt.reloading = !!this.weapons.current?.reloading;
+    pt.flashlight = this.weapons.tacticalActive === 'flashlight';
+    pt.laser = this.weapons.tacticalActive === 'laser';
     pt.alive = !this.health.dead;
     this.enemies.update(dt);
 
@@ -749,6 +756,7 @@ export class RaidScene implements Scene {
       this.health.update(frameDt);
       this.weapons.update(frameDt);
       this.updateAimTarget();
+      this.tfx?.update(this.weapons.tacticalActive, this.vm, this.trace, this.weapons.adsAmount);
     }
     this.fx.update(frameDt);
     this.noiseHud?.update(frameDt);
@@ -779,7 +787,10 @@ export class RaidScene implements Scene {
       else this.hud.setProgress(null);
 
       const wh = this.weapons.hud();
-      this.chud.setWeapon(wh.name, wh.mag, wh.magMax, wh.reserve, wh.reloading, wh.reloadProgress, wh.slotLabel);
+      const tac = this.weapons.tacticalActive;
+      this.chud.setWeapon(wh.name, wh.mag, wh.magMax, wh.reserve, wh.reloading, wh.reloadProgress, wh.slotLabel, tac === 'flashlight' ? '手電筒' : tac === 'laser' ? '雷射' : '');
+      const sg = this.weapons.sight;
+      this.chud.setAds(this.ui.isOpen ? 0 : this.weapons.adsAmount, sg.kind === 'scope' ? sg.zoom : 0);
       this.chud.setHealth(this.health.hp, this.health.max, this.health.armorDur, this.health.armorMax);
       const hid = this.health.helmetId;
       this.chud.setHelmet(this.health.helmetDur, this.health.helmetMax, hid ? HELMET_STATS[hid].level : 0, this.health.helmetEffLevel);

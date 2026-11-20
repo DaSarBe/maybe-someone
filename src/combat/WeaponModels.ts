@@ -29,26 +29,54 @@ export interface WeaponModelCfg {
   fore: [number, number, number];
   /** 槍托切分：沿「後方」軸（rotY 之後的 +Z 方向）超過這個模型座標的三角形歸入槍托（可省略 = 不拆） */
   stockFrom?: { axis: 'x' | 'z'; value: number; sign: 1 | -1 };
+  /**
+   * 配件安裝點與機械瞄具的瞄準線（模型座標）：
+   *  rear / front：照門與準星（瞄準線通過這兩點，瞄準時它們會落在畫面中心）
+   *  rail：上方導軌（瞄具底座中心）、grip：握把頂端（護木下緣）、tac：戰術裝備（雷射 / 手電筒）底座
+   *  tacDir：戰術裝備朝哪個方向長出去（側面往左 / 往下）、mag：彈匣底部（擴容彈匣往下延伸，size = 寬 / 高 / 長）
+   */
+  mounts: {
+    rear: [number, number, number]; front: [number, number, number];
+    rail: [number, number, number]; grip: [number, number, number];
+    tac: [number, number, number]; tacDir: 'left' | 'down';
+    mag: [number, number, number]; magSize: [number, number, number];
+  };
 }
 
 export const WEAPON_MODEL_CFG: Record<ViewmodelStyle, WeaponModelCfg> = {
   pistol: {
     file: 'weapon_pistol', rotY: Math.PI / 2, scale: 0.04, pivot: [-1.5, 0, 0], sight: 3.07, muzzle: [4.94, 2.4, 0], grip: [-3.0, -0.6, 0], fore: [0.5, 1.0, 0],
     colors: { DarkerMetal: '#3b4048', Metal: '#59616c', Magazine: '#25282d', 'Material.003': '#8a8f98', Muzzle: '#141619', Wood: '#6b4a2e' },
+    mounts: {
+      rear: [-2.8, 3.07, 0], front: [4.3, 3.0, 0], rail: [1.2, 2.85, 0], grip: [3.0, 1.2, 0], tac: [3.0, 1.2, 0], tacDir: 'down',
+      mag: [-3.7, -3.1, 0], magSize: [1.5, 1.2, 1.3],
+    },
   },
   smg: {
     file: 'weapon_smg', rotY: 0, scale: 0.05, pivot: [0, -0.1, 2.0], sight: 0.67, muzzle: [0, -0.05, -6.25], grip: [0, -1.0, 0.6], fore: [0, -0.6, -3.2],
     colors: { 'Material.001': '#33373e', 'Material.003': '#1c1e22', 'Material.004': '#4d535c' },
+    mounts: {
+      rear: [0, 1.55, -2.1], front: [0, 1.4, -4.2], rail: [0, 1.66, -2.9], grip: [0, -0.6, -5.0], tac: [-0.5, -0.1, -5.0], tacDir: 'left',
+      mag: [0, -1.9, 0.0], magSize: [0.9, 1.2, 1.6],
+    },
   },
   rifle: {
     file: 'weapon_rifle', rotY: 0, scale: 0.105, pivot: [0, -0.06, 0.8], sight: 0.68, muzzle: [0, 0.56, -4.75], grip: [0, -0.4, 2.8], fore: [0, 0.2, -2.6],
     stockFrom: { axis: 'z', value: 2.6, sign: 1 },
     colors: { Barrels: '#2a2d32', Black: '#30343a', BulletOrange: '#c4651e', BulletYellow: '#c9a23a', DarkWood: '#5a3a22', LightWood: '#7a5232', Metal: '#59616c' },
+    mounts: {
+      rear: [0, 0.68, 0.45], front: [0, 0.76, -4.3], rail: [0, 0.68, 0.4], grip: [0, 0.2, -2.6], tac: [-0.2, 0.45, -3.0], tacDir: 'left',
+      mag: [0, -0.1, 1.0], magSize: [0.42, 0.9, 0.6],
+    },
   },
   shotgun: {
     file: 'weapon_shotgun', rotY: 0, scale: 0.11, pivot: [0, -0.27, 0.3], sight: 0.57, muzzle: [0, 0.4, -6.6], grip: [0, -0.4, 0.8], fore: [0, 0.1, -3.4],
     stockFrom: { axis: 'z', value: 0.9, sign: 1 },
     colors: { Barrels: '#3a3f46', Black: '#25282d', BulletRed: '#b02a2a', BulletYellow: '#c9a23a', DarkMetal: '#4a5058', Trigger: '#8a8f98' },
+    mounts: {
+      rear: [0, 0.51, -1.2], front: [0, 0.57, -6.5], rail: [0, 0.5, -1.2], grip: [0, 0.0, -3.2], tac: [-0.25, 0.3, -4.2], tacDir: 'left',
+      mag: [0, -0.4, -0.5], magSize: [0.5, 0.8, 0.8],
+    },
   },
 };
 
@@ -63,6 +91,21 @@ export interface WeaponModel {
   sightY: number;
   stocks: THREE.Mesh[];
   triangles: number;
+  /** 配件安裝點與瞄準線（group 座標，已套用縮放 / 旋轉 / 置中） */
+  mounts: {
+    rear: THREE.Vector3; front: THREE.Vector3; rail: THREE.Vector3; grip: THREE.Vector3; tac: THREE.Vector3;
+    tacDir: 'left' | 'down'; mag: THREE.Vector3; magSize: THREE.Vector3;
+  };
+}
+
+/** 模型座標的 mounts → group 座標（magSize 是尺寸，只縮放不平移） */
+export function resolveMounts(cfg: WeaponModelCfg): WeaponModel['mounts'] {
+  const m = cfg.mounts;
+  return {
+    rear: toLocal(cfg, m.rear), front: toLocal(cfg, m.front), rail: toLocal(cfg, m.rail), grip: toLocal(cfg, m.grip), tac: toLocal(cfg, m.tac),
+    tacDir: m.tacDir, mag: toLocal(cfg, m.mag),
+    magSize: new THREE.Vector3(m.magSize[0], m.magSize[1], m.magSize[2]).multiplyScalar(cfg.scale),
+  };
 }
 
 const BASE = import.meta.env.BASE_URL + 'assets/models/weapons/';
@@ -145,6 +188,7 @@ async function loadOne(style: ViewmodelStyle): Promise<WeaponModel | null> {
       group, stocks, triangles: baked.tris,
       muzzle: toLocal(cfg, cfg.muzzle), grip: toLocal(cfg, cfg.grip), fore: toLocal(cfg, cfg.fore),
       sightY: (cfg.sight - cfg.pivot[1]) * cfg.scale + 0.006,
+      mounts: resolveMounts(cfg),
     };
   } catch (err) {
     console.warn(`[weapon] failed to load model ${style}, using box gun`, err);

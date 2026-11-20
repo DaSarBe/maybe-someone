@@ -9,6 +9,7 @@ import { resetSaveButton } from '../ui/MenuButtons';
 import { PauseMenu } from '../ui/PauseMenu';
 import { Ui } from '../ui/Ui';
 import { ResultPanel } from '../ui/panels/ResultPanel';
+import { BenchPanel } from '../ui/panels/BenchPanel';
 import { ShopPanel } from '../ui/panels/ShopPanel';
 import { TimeMachinePanel } from '../ui/panels/TimeMachinePanel';
 import { TransferPanel } from '../ui/panels/TransferPanel';
@@ -24,6 +25,7 @@ const LABEL_POS: Record<StationId, [number, number, number]> = {
   upgrade: [8.4, 2.8, 3.7],
   safe: [-8.5, 2.1, -5.4],
   timemachine: [0, 3.95, -6.6],
+  bench: [-3.4, 2.75, 7.2],
 };
 
 /** 未來基地：可走動的 3D 房間，靠近互動站按 E 開啟各種介面 */
@@ -124,6 +126,8 @@ export class HubScene implements Scene {
     pl('#ffb23a', 38, 7, 3.2, -3.9, 15);
     pl('#4ade80', 36, 7, 3.2, 3.7, 15);
     pl('#ff3dcb', 36, -7, 3.2, -5.4, 15);
+    pl('#ffa04a', 34, -3.4, 3.3, 6.2, 14);
+    pl('#ffd2a0', 18, -3.4, 1.6, 4.6, 7);
     pl('#dfe9ff', 40, 0, 4.0, 0, 20);
     pl('#35e1ff', 26, 0, 3.8, 5, 15);
   }
@@ -177,6 +181,7 @@ export class HubScene implements Scene {
       case 'safe': ui.open(new TransferPanel(ui, 'safe')); break;
       case 'shop': ui.open(new ShopPanel(ui)); break;
       case 'upgrade': ui.open(new UpgradePanel(ui)); break;
+      case 'bench': ui.open(new BenchPanel(ui)); break;
       case 'timemachine': ui.open(new TimeMachinePanel(ui, (era) => this.depart(era))); break;
     }
   }

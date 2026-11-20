@@ -3,6 +3,7 @@ import { rollContainer, type Rng } from '../items/LootTable';
 import type { ItemStack } from '../items/Inventory';
 import type { EnemyDef } from '../data/enemies';
 import { ARMOR_STATS, HELMET_STATS } from '../data/gear';
+import type { WeaponMods } from '../data/attachments';
 
 export interface CorpseSource {
   def: EnemyDef;
@@ -15,12 +16,16 @@ export interface CorpseSource {
   armorDur: number;
   /** 戴著的頭盔（id 與剩餘耐久）；沒戴或耐久歸零就不會掉 */
   helmet?: { id: string; dur: number } | null;
+  /** 武器上的配件（帶著掉在屍體上） */
+  mods?: WeaponMods;
 }
 
 /** 屍體的內容：他的武器（帶著剩餘彈匣）、護甲（帶著剩餘耐久）、備彈、額外掉落，加上 corpse 通用戰利品表 */
 export function buildCorpseLoot(src: CorpseSource, era: string, rng: Rng = Math.random): ItemStack[] {
   const out: ItemStack[] = [];
-  out.push({ id: src.weaponId, qty: 1, dur: src.mag });
+  const weapon: ItemStack = { id: src.weaponId, qty: 1, dur: src.mag };
+  if (src.mods && Object.keys(src.mods).length) weapon.mods = { ...src.mods };
+  out.push(weapon);
   if (src.def.armorId && src.armorDur > 0 && rng() < src.def.armorDrop && ARMOR_STATS[src.def.armorId]) {
     out.push({ id: src.def.armorId, qty: 1, dur: Math.max(1, Math.round(src.armorDur)) });
   }

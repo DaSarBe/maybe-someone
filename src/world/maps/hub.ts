@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { MapBuilder } from '../MapBuilder';
 import type { GameMap } from '../GameMap';
 
-export type StationId = 'stash' | 'shop' | 'upgrade' | 'safe' | 'timemachine';
+export type StationId = 'stash' | 'shop' | 'upgrade' | 'safe' | 'timemachine' | 'bench';
 
 export interface Station {
   id: StationId;
@@ -19,6 +19,7 @@ export const HUB_STATIONS: Station[] = [
   { id: 'upgrade', label: '升級工作台', pos: new THREE.Vector3(7.3, 0, 3.7), radius: 2.7, color: '#4ade80' },
   { id: 'safe', label: '房間保險箱', pos: new THREE.Vector3(-7.5, 0, -5.4), radius: 2.5, color: '#ff3dcb' },
   { id: 'timemachine', label: '時光機', pos: new THREE.Vector3(0, 0, -4.8), radius: 3.0, color: '#7c8cff' },
+  { id: 'bench', label: '改槍台', pos: new THREE.Vector3(-3.4, 0, 5.6), radius: 2.3, color: '#ff8a3d' },
 ];
 
 export const HUB_SIZE = { x: 10, z: 8, h: 4.4 };
@@ -113,6 +114,10 @@ export function buildHub(): GameMap {
   b.boxMinMax('metal', '#3a4a8a', 2.1, 0, -Z, 2.9, 3.8, -Z + 1.3);
   b.boxMinMax('metal', '#3a4a8a', -2.9, 3.8, -Z, 2.9, 4.3, -Z + 1.3);
   b.boxMinMax('metal_grate', '#2a3150', -2.2, 0.03, -Z + 1.3, 2.2, 0.12, -3.6);
+  // 改槍台（南牆前）：工作檯 + 牆上的工具板
+  b.boxMinMax('metal', '#a8794c', -4.7, 0, 6.5, -2.1, 0.92, Z);
+  b.boxMinMax('metal', '#6a4c34', -4.7, 0.92, 7.55, -2.1, 2.2, Z - 0.0);
+  b.boxMinMax('metal', '#9a9fa8', -4.55, 0.92, 6.75, -2.25, 0.97, 7.45);
   // 角落的木箱（裝飾兼擋路）
   b.boxMinMax('metal', '#4c5e72', -X, 0, 6.2, -X + 1.8, 1.0, Z);
   b.boxMinMax('metal', '#4c5e72', X - 1.8, 0, 6.4, X, 1.0, Z);
@@ -136,6 +141,9 @@ export function buildHub(): GameMap {
   strips.add(neon('#4ade80', X - 1.8, 0.95, 2.3, X - 1.74, 1.0, 5.2));
   // 保險箱基座
   strips.add(neon('#ff3dcb', -X + 1.6, 0, -6.6, -X + 1.66, 0.06, -4.2));
+  // 改槍台
+  strips.add(neon('#ff8a3d', -4.7, 0.92, 6.5, -2.1, 0.97, 6.56));
+  strips.add(neon('#ff8a3d', -4.7, 2.15, 7.5, -2.1, 2.2, 7.56));
   // 時光機門框
   strips.add(neon('#7c8cff', -2.1, 0, -Z + 1.3, -2.04, 3.8, -Z + 1.36));
   strips.add(neon('#7c8cff', 2.04, 0, -Z + 1.3, 2.1, 3.8, -Z + 1.36));

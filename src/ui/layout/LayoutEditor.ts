@@ -21,6 +21,7 @@ function mockOf(id: ElementId): HTMLElement {
     case 'inventory': return el('div', 'mc-btn mc-sm', '背包');
     case 'swap': return el('div', 'mc-btn mc-sm', '切換');
     case 'heal': return el('div', 'mc-btn mc-sm', '治療');
+    case 'flashlight': return el('div', 'mc-btn mc-sm', '燈');
     case 'menu': return el('div', 'mc-btn le-menu', '☰');
     case 'aim': return el('div', 'mc-btn', '瞄準');
     case 'jump': return el('div', 'mc-btn', '跳');

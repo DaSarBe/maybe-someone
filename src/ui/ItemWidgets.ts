@@ -1,9 +1,11 @@
 import { ARMOR_STATS, BACKPACK_STATS, HELMET_STATS } from '../data/gear';
+import { ATTACHMENTS, MOD_SLOTS, MOD_SLOT_NAMES, mountableSlots, modIds } from '../data/attachments';
+import { effectiveWeapon } from '../combat/WeaponMods';
 import { helmetSummary } from '../data/helmet';
 import { CATEGORY_NAMES, RARITY_COLORS, RARITY_NAMES, getItem } from '../data/items';
 import { WEAPON_STATS } from '../data/weapons';
 import { CONTAINER_NAMES, type ContainerId, type Loc } from '../economy/EconomyService';
-import type { ItemStack } from '../items/Inventory';
+import { stackWeight, type ItemStack } from '../items/Inventory';
 import { EQUIP_SLOTS, itemMaxDur, type EquipSlot } from '../items/Profile';
 import { btn, el, fmtCredits, fmtKg } from './dom';
 import type { Ui } from './Ui';
@@ -89,7 +91,7 @@ export function itemCell(stack: ItemStack | null, o: CellOpts = {}): HTMLElement
     cell.appendChild(g);
     if (stack.qty > 1) cell.appendChild(el('span', 'qty', String(stack.qty)));
     if (stack.dur !== undefined) {
-      const max = itemMaxDur(stack.id) || 1;
+      const max = itemMaxDur(stack.id, stack.mods) || 1;
       const bar = el('span', 'dur');
       const fill = el('i');
       fill.style.width = `${Math.round((stack.dur / max) * 100)}%`;
@@ -97,6 +99,13 @@ export function itemCell(stack: ItemStack | null, o: CellOpts = {}): HTMLElement
       cell.appendChild(bar);
     }
     if (o.tag) cell.appendChild(el('span', 'tag', o.tag));
+    // 武器上安裝的配件：右上角顯示數量
+    const nMods = modIds(stack.mods).length;
+    if (nMods > 0) {
+      const mb = el('span', 'mods', `⚙${nMods}`);
+      mb.title = modIds(stack.mods).map((id) => getItem(id)?.name ?? id).join('、');
+      cell.appendChild(mb);
+    }
     cell.dataset.item = stack.id;
   } else {
     cell.classList.add('empty');
@@ -253,7 +262,7 @@ export function itemInfo(ctx: InvCtx, stack: ItemStack, opts: { price?: { label:
   if (!def) return box;
   const rc = RARITY_COLORS[def.rarity];
   const head = el('div', 'info-head');
-  head.appendChild(itemCell({ id: stack.id, qty: 1, dur: stack.dur }, {}));
+  head.appendChild(itemCell({ id: stack.id, qty: 1, dur: stack.dur, mods: stack.mods }, {}));
   const t = el('div', 'info-title');
   const name = el('h3', '', def.name);
   name.style.color = rc;
@@ -263,13 +272,29 @@ export function itemInfo(ctx: InvCtx, stack: ItemStack, opts: { price?: { label:
   box.append(head, el('p', 'desc', def.desc));
 
   const rows: [string, string][] = [];
-  rows.push(['重量', `${fmtKg(def.weight)}${stack.qty > 1 ? `（共 ${fmtKg(def.weight * stack.qty)}）` : ''}`]);
-  const w = WEAPON_STATS[def.id];
-  if (w) {
+  const unitW = stackWeight({ ...stack, qty: 1 });
+  rows.push(['重量', `${fmtKg(unitW)}${stack.qty > 1 ? `（共 ${fmtKg(unitW * stack.qty)}）` : ''}${stack.mods ? '（含配件）' : ''}`]);
+  const w0 = WEAPON_STATS[def.id];
+  if (w0) {
+    const ew = effectiveWeapon(def.id, stack.mods);
+    const w = ew.stats;
     rows.push(['欄位', w.slot === 'primary' ? '主武器' : '副武器']);
-    rows.push(['傷害', `${w.damage}${w.pellets > 1 ? ` × ${w.pellets}` : ''}`]);
+    rows.push(['傷害', `${Math.round(w.damage * 10) / 10}${w.pellets > 1 ? ` × ${w.pellets}` : ''}`]);
     rows.push(['射速', `${w.fireRate} 發/分`]);
     rows.push(['彈匣', `${stack.dur ?? w.magazine} / ${w.magazine} 發（${getItem(w.ammoType)?.name ?? w.ammoType}）`]);
+    const ids = modIds(stack.mods);
+    if (ids.length) {
+      for (const s of MOD_SLOTS) {
+        const id = stack.mods?.[s];
+        if (id) rows.push([MOD_SLOT_NAMES[s], getItem(id)?.name ?? id]);
+      }
+    } else if (mountableSlots(def.id).length) rows.push(['配件', '無（可在基地改槍台安裝）']);
+  }
+  const att = ATTACHMENTS[def.id];
+  if (att) {
+    rows.push(['槽位', MOD_SLOT_NAMES[att.slot]]);
+    rows.push(['優點', att.pros.join('、') || '—']);
+    if (att.cons.length) rows.push(['缺點', att.cons.join('、')]);
   }
   const a = ARMOR_STATS[def.id];
   if (a) {
@@ -286,7 +311,8 @@ export function itemInfo(ctx: InvCtx, stack: ItemStack, opts: { price?: { label:
   if (b) rows.push(['容量', `${b.slots} 格 / ${b.maxWeight} kg`]);
   const unit = ctx.eco.sellPriceOf(stack.id);
   if (opts.price !== null) {
-    const p = opts.price ?? { label: '估價', value: unit * stack.qty };
+    // 武器的估價含已安裝配件的價值
+    const p = opts.price ?? { label: '估價', value: ctx.eco.valueOf(stack) };
     const fmt = p.fmt ?? fmtCredits;
     rows.push([p.label, `${fmt(p.value)}${stack.qty > 1 && !opts.price ? `（單價 ${fmtCredits(unit)}）` : ''}`]);
   }
@@ -331,7 +357,7 @@ export function slotActions(ctx: InvCtx, loc: Loc, stack: ItemStack, hub: boolea
     }));
   }
   if (hub) {
-    const gain = eco.sellPriceOf(stack.id) * ctx.qty;
+    const gain = eco.valueOf({ ...stack, qty: ctx.qty });
     out.push(btn(`出售 ${fmtCredits(gain)}`, () => {
       if (ctx.ui.report(eco.sell(loc, ctx.qty), `已出售 ${def.name} × ${ctx.qty}（+${fmtCredits(gain)}）`)) ctx.select(null);
     }, 'gold'));

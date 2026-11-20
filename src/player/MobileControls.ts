@@ -34,6 +34,7 @@ const BUTTONS: BtnDef[] = [
   { id: 'inventory', label: '背包', action: 'inventory', cls: 'mc-sm' },
   { id: 'swap', label: '切換', action: 'weaponSwap', combat: true, cls: 'mc-sm' },
   { id: 'heal', label: '治療', action: 'heal', combat: true, cls: 'mc-sm' },
+  { id: 'flashlight', label: '燈', action: 'flashlight', combat: true, cls: 'mc-sm' },
 ];
 
 /**

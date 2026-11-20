@@ -113,6 +113,8 @@ export const SHOT_LAYERS: Record<string, ShotLayer[]> = {
     { key: 'weapons.shotgun_boom', rate: 1, volume: 0.95 },
   ],
 };
+/** 滅音槍聲的處理：低通到 1.4kHz、音量 ×0.5、降音高 8%、殘響減少 */
+export const SUPPRESSED_SHOT = { lowpass: 1400, volume: 0.5, rate: 0.92, wet: 0.45 };
 /** 彈殼落地的延遲（秒）：霰彈槍在上膛時才退殼 */
 const CASING_DELAY: Record<string, number> = { pistol: 0.32, smg: 0.28, rifle: 0.34, shotgun: 0.95 };
 /** 彈殼落在不同地面的聲音變化 */
@@ -712,13 +714,16 @@ export class AudioManager implements SoundPlayer {
     const zone = (position ? findReverbZone(this.zones, position)?.type : undefined) ?? 'outdoor';
     const layers = SHOT_LAYERS[weaponId] ?? SHOT_LAYERS.pistol;
     const vJ = jitter(0.05), rJ = jitter(0.03);
+    // 滅音槍聲：壓掉高頻（低通）、降音量與音高、殘響很少（悶悶的「噗」）
+    const sup = !!e.suppressed;
     for (const l of layers) {
       const key = this.has(l.key) ? l.key : 'weapons.pistol_fire';
       if (!this.has(key)) continue;
       this.play({
-        ...sp, key, volume: l.volume * vJ, rate: l.rate * rJ, lowpass: minDefined(l.lowpass, sp.lowpass), highshelf: l.highshelf,
-        wet: 1.1 + (sp.wetBoost ?? 0), sourceZone: own ? undefined : zone, refDistance: sp.refDistance ?? 8,
-        tag: `shot ${weaponId} ${l.key.split('.')[1]} @${zone}`,
+        ...sp, key, volume: l.volume * vJ * (sup ? SUPPRESSED_SHOT.volume : 1), rate: l.rate * rJ * (sup ? SUPPRESSED_SHOT.rate : 1),
+        lowpass: minDefined(sup ? SUPPRESSED_SHOT.lowpass : l.lowpass, sp.lowpass), highshelf: sup ? undefined : l.highshelf,
+        wet: (sup ? SUPPRESSED_SHOT.wet : 1.1) + (sp.wetBoost ?? 0), sourceZone: own ? undefined : zone, refDistance: sp.refDistance ?? 8,
+        tag: `shot ${weaponId} ${l.key.split('.')[1]} @${zone}${sup ? ' suppressed' : ''}`,
       });
     }
     const pos = e.position;

@@ -87,7 +87,7 @@ export class LootPanel implements Panel {
     const s = loot[index];
     if (!s || !this.search.isRevealed(index)) return;
     const n = Math.min(qty, s.qty);
-    const r = ui.economy.lootItem(s.id, n, s.dur);
+    const r = ui.economy.lootItem(s.id, n, s.dur, s.mods);
     if (!r.ok) { ui.toast(r.reason, 'err'); return; }
     s.qty -= r.taken;
     if (s.qty <= 0) loot[index] = null;
@@ -103,7 +103,7 @@ export class LootPanel implements Panel {
     for (let i = 0; i < loot.length; i++) {
       const s = loot[i];
       if (!s || !this.search.isRevealed(i)) continue;
-      const r = ui.economy.lootItem(s.id, s.qty, s.dur);
+      const r = ui.economy.lootItem(s.id, s.qty, s.dur, s.mods);
       if (!r.ok) { blocked = r.reason; continue; }
       any = true;
       s.qty -= r.taken;

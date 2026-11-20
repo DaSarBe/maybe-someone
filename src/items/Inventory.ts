@@ -1,3 +1,4 @@
+import { modIds, type WeaponMods } from '../data/attachments';
 import { getItem } from '../data/items';
 
 /** 物品堆疊。可序列化（直接放進存檔） */
@@ -6,6 +7,24 @@ export interface ItemStack {
   qty: number;
   /** 護甲的剩餘耐久；省略代表全新 */
   dur?: number;
+  /** 武器安裝的配件（槽位 → 配件物品 id）；配件跟著武器走 */
+  mods?: WeaponMods;
+}
+
+/** 複製堆疊（含耐久與配件），可指定新數量 */
+export function cloneStack(s: ItemStack, qty = s.qty): ItemStack {
+  const out: ItemStack = { id: s.id, qty };
+  if (s.dur !== undefined) out.dur = s.dur;
+  if (s.mods) out.mods = { ...s.mods };
+  return out;
+}
+
+/** 建立堆疊（dur / mods 省略就不寫入欄位） */
+export function makeStack(id: string, qty: number, dur?: number, mods?: WeaponMods): ItemStack {
+  const out: ItemStack = { id, qty };
+  if (dur !== undefined) out.dur = dur;
+  if (mods && Object.keys(mods).length) out.mods = { ...mods };
+  return out;
 }
 export type Slot = ItemStack | null;
 
@@ -80,7 +99,7 @@ export class Inventory {
     for (let i = 0; i < this.capacity; i++) {
       const s = this.slots[i];
       if (!s) room += def.maxStack;
-      else if (s.id === id && s.dur === undefined) room += def.maxStack - s.qty;
+      else if (s.id === id && s.dur === undefined && !s.mods) room += def.maxStack - s.qty;
     }
     let n = Math.min(want, room);
     if (Number.isFinite(this.maxWeight) && def.weight > 0) {
@@ -95,15 +114,15 @@ export class Inventory {
   }
 
   /** 加入物品：先補滿既有堆疊，再用空格。回傳放不下的剩餘數量 */
-  add(id: string, qty: number, dur?: number): number {
+  add(id: string, qty: number, dur?: number, mods?: WeaponMods): number {
     const def = getItem(id);
     if (!def || qty <= 0) return qty;
     let left = Math.min(qty, this.maxAddable(id, qty));
     const rejected = qty - left;
-    if (dur === undefined) {
+    if (dur === undefined && !mods) {
       for (const s of this.slots) {
         if (left <= 0) break;
-        if (s && s.id === id && s.dur === undefined && s.qty < def.maxStack) {
+        if (s && s.id === id && s.dur === undefined && !s.mods && s.qty < def.maxStack) {
           const n = Math.min(left, def.maxStack - s.qty);
           s.qty += n;
           left -= n;
@@ -114,25 +133,25 @@ export class Inventory {
       const i = this.firstEmpty();
       if (i < 0) break;
       const n = Math.min(left, def.maxStack);
-      this.slots[i] = dur === undefined ? { id, qty: n } : { id, qty: n, dur };
+      this.slots[i] = makeStack(id, n, dur, mods);
       left -= n;
     }
     return rejected + left;
   }
 
   addStack(s: ItemStack): number {
-    return this.add(s.id, s.qty, s.dur);
+    return this.add(s.id, s.qty, s.dur, s.mods);
   }
 
   /** 無視格數與重量上限的加入（撤離結算時倉庫溢出用）：放不下就在尾端增加格子 */
-  forceAdd(id: string, qty: number, dur?: number): void {
+  forceAdd(id: string, qty: number, dur?: number, mods?: WeaponMods): void {
     const def = getItem(id);
     if (!def) return;
     let left = qty;
-    if (dur === undefined) {
+    if (dur === undefined && !mods) {
       for (const s of this.slots) {
         if (left <= 0) break;
-        if (s && s.id === id && s.dur === undefined && s.qty < def.maxStack) {
+        if (s && s.id === id && s.dur === undefined && !s.mods && s.qty < def.maxStack) {
           const n = Math.min(left, def.maxStack - s.qty);
           s.qty += n;
           left -= n;
@@ -141,7 +160,7 @@ export class Inventory {
     }
     while (left > 0) {
       const n = Math.min(left, def.maxStack);
-      const stack: ItemStack = dur === undefined ? { id, qty: n } : { id, qty: n, dur };
+      const stack: ItemStack = makeStack(id, n, dur, mods);
       const i = this.firstEmpty();
       if (i >= 0) this.slots[i] = stack; else this.slots.push(stack);
       left -= n;
@@ -154,7 +173,7 @@ export class Inventory {
     if (!s) return null;
     const n = Math.min(qty ?? s.qty, s.qty);
     if (n <= 0) return null;
-    const out: ItemStack = s.dur === undefined ? { id: s.id, qty: n } : { id: s.id, qty: n, dur: s.dur };
+    const out = cloneStack(s, n);
     s.qty -= n;
     if (s.qty <= 0) this.slots[i] = null;
     return out;
@@ -200,7 +219,7 @@ export class Inventory {
       this.slots[to] = this.takeAt(from, n);
       return { ok: true, moved: n };
     }
-    if (dst.id === src.id && dst.dur === src.dur && def.maxStack > 1) {
+    if (dst.id === src.id && dst.dur === src.dur && !dst.mods && !src.mods && def.maxStack > 1) {
       const m = Math.min(n, def.maxStack - dst.qty);
       if (m <= 0) return { ok: false, reason: 'full' };
       dst.qty += m;
@@ -223,8 +242,10 @@ export class Inventory {
   }
 }
 
+/** 堆疊重量（含武器上的配件） */
 export function stackWeight(s: ItemStack): number {
-  return (getItem(s.id)?.weight ?? 0) * s.qty;
+  const mods = s.mods ? modIds(s.mods).reduce((w, id) => w + (getItem(id)?.weight ?? 0), 0) : 0;
+  return (getItem(s.id)?.weight ?? 0) * s.qty + mods * s.qty;
 }
 
 /** 超過 80% 開始變慢；超過 100% 不能衝刺（供 PlayerController 使用） */

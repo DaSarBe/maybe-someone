@@ -46,6 +46,7 @@ export const LOOT_TABLES: Record<string, EraLoot> = {
           { id: 'ammo_pistol', weight: 7, qty: [8, 24] }, { id: 'bandage', weight: 6, qty: [1, 2] },
           { id: 'pearl_string', weight: 3 }, { id: 'old_banknote', weight: 3 }, { id: 'qing_bowl', weight: 2 },
           { id: 'energy_cell', weight: 2 },
+          { id: 'att_grip', weight: 2 }, { id: 'att_flashlight', weight: 2.5 }, { id: 'att_laser', weight: 1.2 },
         ],
       },
       toolbox: {
@@ -61,6 +62,8 @@ export const LOOT_TABLES: Record<string, EraLoot> = {
           { id: 'helmet_1', weight: 1.5 },
           { id: 'energy_cell', weight: 4 }, { id: 'pistol', weight: 2 }, { id: 'smg', weight: 1 },
           { id: 'chronite', weight: 3 },
+          { id: 'att_grip', weight: 3 }, { id: 'att_flashlight', weight: 3 }, { id: 'att_extmag', weight: 2 },
+          { id: 'att_brake', weight: 2 }, { id: 'att_reddot', weight: 1.5 },
         ],
       },
       cabinet: {
@@ -75,6 +78,8 @@ export const LOOT_TABLES: Record<string, EraLoot> = {
           { id: 'chronite_shard', weight: 7, qty: [1, 2] }, { id: 'chronite', weight: 4 },
           { id: 'medkit', weight: 4 }, { id: 'armor_1', weight: 2 }, { id: 'armor_2', weight: 2 },
           { id: 'helmet_1', weight: 2 }, { id: 'helmet_2', weight: 1 }, { id: 'bag_medium', weight: 1 }, { id: 'screw_jar', weight: 4 }, { id: 'jade_pendant', weight: 2 },
+          { id: 'att_reddot', weight: 2.5 }, { id: 'att_holo', weight: 1.5 }, { id: 'att_extmag', weight: 2 },
+          { id: 'att_laser', weight: 2 }, { id: 'att_flashlight', weight: 2 }, { id: 'att_brake', weight: 1.5 },
         ],
       },
       safe: {
@@ -91,6 +96,8 @@ export const LOOT_TABLES: Record<string, EraLoot> = {
           { id: 'helmet_2', weight: 2 }, { id: 'helmet_3', weight: 1.5 }, { id: 'helmet_4', weight: 1 },
           { id: 'painkiller', weight: 3 }, { id: 'stabilizer_shot', weight: 3 },
           { id: 'ammo_rifle', weight: 8, qty: [20, 40] }, { id: 'newspaper', weight: 6 }, { id: 'rice_wine', weight: 6 },
+          { id: 'att_suppressor', weight: 3 }, { id: 'att_scope2x', weight: 2.5 }, { id: 'att_scope4x', weight: 1.5 },
+          { id: 'att_holo', weight: 2.5 }, { id: 'att_reddot', weight: 2.5 }, { id: 'att_extmag', weight: 2 },
         ],
       },
       corpse: {
@@ -107,6 +114,8 @@ export const LOOT_TABLES: Record<string, EraLoot> = {
           { id: 'bag_small', weight: 3 }, { id: 'bag_medium', weight: 2 },
           { id: 'brick_phone', weight: 4 }, { id: 'pager', weight: 5 }, { id: 'chronite_shard', weight: 6, qty: [1, 2] },
           { id: 'chronite', weight: 3 },
+          { id: 'att_grip', weight: 1.5 }, { id: 'att_flashlight', weight: 2 }, { id: 'att_laser', weight: 1 },
+          { id: 'att_extmag', weight: 1.2 }, { id: 'att_reddot', weight: 1 },
         ],
       },
     },

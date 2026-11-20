@@ -62,6 +62,9 @@ export const TRADERS: Record<string, TraderDef> = {
       // 頭盔：進貨價約為未來售價的 75%
       { id: 'helmet_1', price: 430, qty: [1, 1], chance: 0.35 },
       { id: 'helmet_2', price: 1300, qty: [1, 1], chance: 0.2 },
+      // 槍械配件：只有少量、價格比基地高（進貨價 ≈ 未來售價的 1.2 倍）
+      { id: 'att_suppressor', price: 4200, qty: [1, 1], chance: 0.25 },
+      { id: 'att_reddot', price: 1300, qty: [1, 1], chance: 0.3 },
       // 雜貨
       { id: 'rice_wine', price: 60, qty: [2, 6], chance: 0.7 },
       { id: 'vhs', price: 90, qty: [1, 4], chance: 0.5 },

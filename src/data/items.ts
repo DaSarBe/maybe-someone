@@ -1,6 +1,7 @@
 import type { ItemDef } from './types';
 import { WEAPON_ITEMS } from './weapons';
 import { GEAR_ITEMS } from './gear';
+import { ATTACHMENT_ITEMS } from './attachments';
 
 export const CURRENCY_SYMBOL = '₵';
 export const STARTING_CREDITS = 8000;
@@ -62,13 +63,13 @@ const BASE_ITEMS: ItemDef[] = [
   { id: 'newspaper', name: '舊報紙', desc: '頭版標題寫著股市萬點。', category: 'junk', weight: 0.2, maxStack: 10, priceFuture: 8, rarity: 'common', icon: { glyph: '📰', color: '#d4d4d8' }, eras: H },
 ];
 
-export const ITEM_LIST: ItemDef[] = [...WEAPON_ITEMS, ...GEAR_ITEMS, ...BASE_ITEMS];
+export const ITEM_LIST: ItemDef[] = [...WEAPON_ITEMS, ...ATTACHMENT_ITEMS, ...GEAR_ITEMS, ...BASE_ITEMS];
 
 export const ITEMS: Readonly<Record<string, ItemDef>> = Object.fromEntries(ITEM_LIST.map((d) => [d.id, d]));
 
 export const CATEGORY_NAMES: Record<ItemDef['category'], string> = {
   weapon: '武器', ammo: '彈藥', armor: '護甲', helmet: '頭盔', backpack: '背包', medical: '醫療',
-  chronite: '時晶', antique: '古董', future_goods: '未來商品', valuable: '貴重品', junk: '雜物', currency: '貨幣',
+  chronite: '時晶', antique: '古董', future_goods: '未來商品', valuable: '貴重品', junk: '雜物', currency: '貨幣', attachment: '配件',
 };
 
 export const RARITY_NAMES: Record<ItemDef['rarity'], string> = {
@@ -80,7 +81,7 @@ export const RARITY_COLORS: Record<ItemDef['rarity'], string> = {
 };
 
 /** 黑市終端機會販售的分類 */
-export const SHOP_CATEGORIES: ItemDef['category'][] = ['weapon', 'ammo', 'armor', 'helmet', 'backpack', 'medical', 'future_goods'];
+export const SHOP_CATEGORIES: ItemDef['category'][] = ['weapon', 'attachment', 'ammo', 'armor', 'helmet', 'backpack', 'medical', 'future_goods'];
 
 export function getItem(id: string): ItemDef | undefined {
   return ITEMS[id];

@@ -1,11 +1,13 @@
+import { cleanMods, type WeaponMods } from '../data/attachments';
 import { DEFAULT_ERA } from '../data/eras';
 import { STARTING_CREDITS, getItem } from '../data/items';
 import { ARMOR_STATS, BACKPACK_STATS, HELMET_STATS, POCKETS } from '../data/gear';
 import { WEAPON_STATS } from '../data/weapons';
+import { effectiveWeapon } from '../combat/WeaponMods';
 import { UPGRADES, type UpgradeId } from '../data/upgrades';
 import { stackWeight, type ItemStack, type Slot } from './Inventory';
 
-export const PROFILE_VERSION = 2;
+export const PROFILE_VERSION = 3;
 export const PROFILE_KEY = 'profile';
 
 export type EquipSlot = 'primary' | 'secondary' | 'armor' | 'helmet' | 'backpack';
@@ -125,21 +127,27 @@ export function helmetMaxDurability(id: string): number {
  * 物品的「狀態值」上限：護甲 / 頭盔 = 耐久，武器 = 彈匣容量。存在 ItemStack.dur。
  * 省略 dur 代表全新 / 彈匣是滿的。
  */
-export function itemMaxDur(id: string): number {
-  return ARMOR_STATS[id]?.durability ?? HELMET_STATS[id]?.durability ?? WEAPON_STATS[id]?.magazine ?? 0;
+export function itemMaxDur(id: string, mods?: WeaponMods): number {
+  const w = WEAPON_STATS[id];
+  if (w) return effectiveWeapon(id, mods).stats.magazine;
+  return ARMOR_STATS[id]?.durability ?? HELMET_STATS[id]?.durability ?? 0;
 }
 
 // ---------------------------------------------------------------- 存檔清理與升級
 function cleanStack(raw: unknown): ItemStack | null {
   if (!raw || typeof raw !== 'object') return null;
-  const r = raw as { id?: unknown; qty?: unknown; count?: unknown; dur?: unknown };
+  const r = raw as { id?: unknown; qty?: unknown; count?: unknown; dur?: unknown; mods?: unknown };
   if (typeof r.id !== 'string') return null;
   const def = getItem(r.id);
   if (!def) return null;
   const q = Number(r.qty ?? r.count ?? 1);
   if (!Number.isFinite(q) || q < 1) return null;
   const s: ItemStack = { id: r.id, qty: Math.min(def.maxStack, Math.floor(q)) };
-  if (typeof r.dur === 'number' && (def.category === 'armor' || def.category === 'helmet' || def.category === 'weapon')) s.dur = Math.max(0, Math.min(itemMaxDur(r.id), Math.floor(r.dur)));
+  if (def.category === 'weapon') {
+    const mods = cleanMods(r.id, r.mods);
+    if (mods) s.mods = mods;
+  }
+  if (typeof r.dur === 'number' && (def.category === 'armor' || def.category === 'helmet' || def.category === 'weapon')) s.dur = Math.max(0, Math.min(itemMaxDur(r.id, s.mods), Math.floor(r.dur)));
   return s;
 }
 
@@ -201,6 +209,8 @@ const MIGRATIONS: Migration[] = [
     out.version = 2;
     return out;
   },
+  // v2 → v3：武器可以安裝配件（ItemStack.mods）。舊存檔的武器沒有配件，欄位省略即可
+  (raw) => ({ ...raw, version: 3 }),
 ];
 
 /** 把任何舊版或損毀的存檔轉成目前版本；無法辨識就回傳全新存檔 */
