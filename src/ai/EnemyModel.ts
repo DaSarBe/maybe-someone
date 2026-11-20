@@ -194,10 +194,11 @@ export interface EnemyModelInstance {
   fallback: boolean;
 }
 
-function fallbackBody(def: EnemyDef): THREE.Group {
+function fallbackBody(def: EnemyDef, tint?: [number, number, number]): THREE.Group {
   const g = new THREE.Group();
   const c = new THREE.Color('#8a94a6');
-  if (def.tint) c.multiply(new THREE.Color(def.tint[0], def.tint[1], def.tint[2]));
+  const t = tint ?? def.tint;
+  if (t) c.multiply(new THREE.Color(t[0], t[1], t[2]));
   const m = new THREE.MeshLambertMaterial({ color: c });
   const h = def.height;
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, h * 0.5, 0.3), m);
@@ -213,10 +214,12 @@ function fallbackBody(def: EnemyDef): THREE.Group {
 const tintCache = new Map<string, THREE.Material>();
 
 /** 建立一個敵人的模型（SkeletonUtils.clone，每隻有自己的骨架與 mixer） */
-export async function createEnemyModel(def: EnemyDef, weaponId: string, castShadow: boolean, helmetLevel = 0): Promise<EnemyModelInstance> {
+/** tintOverride：陣營顏色（三家企業的穿越者共用同一個模型，用顏色區分）；省略 = 沿用 def.tint */
+export async function createEnemyModel(def: EnemyDef, weaponId: string, castShadow: boolean, helmetLevel = 0, tintOverride?: [number, number, number]): Promise<EnemyModelInstance> {
+  const tint = tintOverride ?? def.tint;
   const gltf = await preloadEnemyModel(def.model);
   if (!gltf) {
-    const fb = fallbackBody(def);
+    const fb = fallbackBody(def, tint);
     let helmet: THREE.Group | null = null;
     if (helmetLevel > 0) {
       helmet = createHelmetMesh(helmetLevel, 0.15 * (def.height / 1.8));
@@ -253,15 +256,15 @@ export async function createEnemyModel(def: EnemyDef, weaponId: string, castShad
     if (!m.isMesh) return;
     m.castShadow = castShadow;
     m.frustumCulled = false; // 蒙皮的包圍球不跟著動畫，關閉避免被誤剔除（敵人數量少）
-    if (def.tint) {
+    if (tint) {
       const mats = Array.isArray(m.material) ? m.material : [m.material];
       const out = mats.map((src) => {
-        const key = `${def.kind}:${src.uuid}`;
+        const key = `${def.kind}:${tint.join(',')}:${src.uuid}`;
         let t = tintCache.get(key);
         if (!t) {
           t = src.clone();
           const c = (t as THREE.MeshStandardMaterial).color;
-          if (c) c.multiply(new THREE.Color(def.tint![0], def.tint![1], def.tint![2]));
+          if (c) c.multiply(new THREE.Color(tint[0], tint[1], tint[2]));
           tintCache.set(key, t);
         }
         return t;

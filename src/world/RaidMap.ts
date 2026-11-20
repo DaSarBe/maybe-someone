@@ -1,5 +1,6 @@
 import type * as THREE from 'three';
 import type { ContainerType } from '../data/lootTables';
+import type { FactionId } from '../data/factions';
 import type { GameMap } from './GameMap';
 
 /**
@@ -41,6 +42,8 @@ export interface EnemySpawn {
   chance?: number;
   /** 群組 id：同群組的敵人會互相通知 */
   group?: string;
+  /** 陣營；省略時依種類：guard → 警衛、thug → 黑道、rival_agent → 生成時從企業中挑（見 data/factions.ts pickAgentFaction） */
+  faction?: FactionId;
 }
 
 /** 導航圖：AI 在節點之間移動，節點之間必須可以直線通行（沒有牆擋住、坡度可走） */

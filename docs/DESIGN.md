@@ -385,3 +385,66 @@ public/assets/            models/ sounds/ sprites/ textures/ + CREDITS.md + mani
 ### 13.8 測試
 - 單元（`tests/attachments.test.ts`）：相容表、`installMod / removeMod / buyAndInstallMod`（含拒絕與 Raid 限制）、效果與槍聲範圍、擴容彈匣換彈、mods 跟著武器走（裝備、移動、估價、重量、死亡 / 撤離、屍體、直接裝備、商人、存檔 migrate）、敵人配載機率、手電筒 / 雷射的視覺判定、瞄準姿勢（4 把槍 × 5 種瞄具，瞄準線都在相機視線上）；版面測試新增 `flashlight` 按鈕（6 種機型不重疊）。
 - Playwright（`?debug=1`）：改槍台安裝紅點 / 滅音器 / 握把並重新整理、瞄準時準心消失與各瞄具畫面、彈著點距畫面中心 < 2% 螢幕寬、50m 外聽不到滅音槍聲、隧道裡手電筒發現值較高、擴容彈匣換彈、屍體步槍帶配件、手機 874×402 的改槍介面與倍鏡畫面。
+
+## 14. M6f 陣營、聲望與 NPC 之間的戰鬥
+
+### 14.1 陣營與關係（`src/data/factions.ts`，純資料與純函式）
+| id | 名稱 | 說明 |
+|---|---|---|
+| `guard` | 港務警衛 | 官方，維持秩序 |
+| `triad` | 海龍幫 | 走私集團 |
+| `corp_aurora` / `corp_chronos` / `corp_crimson` | 晨星重工 / 時穹科技 / 赤焰軍工 | 未來企業 |
+
+- 敵人種類 → 陣營：`guard` → 警衛、`thug` → 海龍幫、`rival_agent` → 生成時挑企業（`pickAgentFaction`：15% 是**玩家自己的企業**（友軍），其餘從另外兩家挑一家；尚未選企業就三選一）。可以在 `EnemySpawn.faction` 直接指定。
+- 關係表（`relationBetween(a, b, corpTruce)`）：同陣營友好；guard ⇄ triad、guard ⇄ 所有企業、triad ⇄ 所有企業 **一定敵對**（`HOSTILE_PAIRS`）；企業 ⇄ 企業 **每場 Raid 隨機**休戰（`CORP_TRUCE_CHANCE` = 40%）或敵對。休戰旗標在 `startRaid` 以出發時間為 seed 擲出（`rollCorpTruce`，存在 `RaidState.truce`，重新整理不會變），Raid 開始時畫面中央第二行提示「企業之間：本場休戰 / 敵對」。
+
+### 14.2 玩家聲望（`Profile.reputation`，永久累積）
+- 每個陣營 -100～+100；初始 guard -40、triad -40、自己的企業 +100（固定）、其他兩家 -30（尚未選企業時三家都 -30）。
+- 態度（`attitudeOf`）：< -20 **敵對**（看到就開火）；-20～+40 **中立**（不主動攻擊，會停下來盯著你；被挑釁就翻臉）；> +40 **友好**（不攻擊、不會被腳步引來、可能幫忙）。自己企業的穿越者一定友好。
+- 聲望變化（`killRepChanges`、`BRIBE`）：
+
+| 事件 | 變化 |
+|---|---|
+| 殺死某陣營的成員 | 該陣營 -15（對方是友好態度時 -25）；與該陣營**靜態敵對**的陣營各 +3（殺黑道 → 警衛與三家企業 +3；企業之間的休戰不算） |
+| 時代商行「找人打點」 | guard 或 triad +5（1,000 舊台幣，從背包扣）；同一陣營每場最多 +15（`bribesLeft`） |
+| 誤殺友軍（自己企業的穿越者） | 聲望不變；結算時扣 ₵3,000「誤傷賠償」（不會扣到負數） |
+| 撤離帶出時晶 | 不影響聲望 |
+
+- 只有**玩家**殺人才算（`Enemy.killer === 'player'`）；NPC 互相殺不改聲望。聲望變化立即寫進存檔，並累計在 `RaidState.repDelta`，結算畫面（`ResultPanel`）列出每個陣營的 ▲▼ 與賠償。
+
+### 14.3 企業（`CORPS`）
+- 新存檔與舊存檔（migrate v3 → v4：`corp = null`、聲望用初始值）第一次進基地會跳出「加入企業」畫面（`CorpPanel`，鎖定，不能關）。
+- 加成：**晨星重工** 護甲與頭盔 9 折；**時穹科技** 時空穩定度 +60 秒；**赤焰軍工** 武器與配件 9 折（`EconomyService.buyPriceOf` / `buy` / `buyAndInstallMod` 與 `Profile.raidDuration` 都套用）。
+- 選擇後不能免費更換；在「陣營情報」頁面花 ₵50,000（`SWITCH_CORP_COST`，二次確認）轉換企業，三家企業的聲望重置（guard / triad 保留）。
+
+### 14.4 AI：目標不只是玩家（`ai/Enemy.ts`）
+- `Enemy.faction`、`provoked`（本場被挑釁）。AI 的目標是 `Tgt = { pt: PlayerTarget, enemy: Enemy | null }`：玩家，或另一個敵人（他的位置與姿態由 `view` 提供，和玩家用同一套 `PlayerTarget`，所以視覺 / 命中率 / 掩護 / 包抄的程式都不用分兩套）。
+- **選目標**（`selectTarget`）：每 0.3～0.5 秒掃描一次（不是每個 tick）。玩家只有在對他敵對（聲望 < -20 或被挑釁；自己企業除外）時才是候選；其他 NPC 要「陣營敵對（含本場休戰判斷）、在視距 1.1 倍內」，先用距離篩，再對最近的 3 個做視野 + 視線檢查（`mover.los`）；取最近的。已經在交戰中且目標活著就不換；暫時轉頭或被擋住（還在 1.3 倍視距內）不會忘記目標。群組通知（`alertGroup`）只會拉動「對這個目標也敵對」的隊友。
+- **NPC 開槍**：`Enemy.shoot(dist, tg)` 同一套命中率 / 爆頭 / 散彈；打中 NPC 呼叫 `victim.takeHit(base, zone, from, weaponClass, attacker)`（同一套頭盔 / 護甲傷害），被打的人立刻把攻擊者當目標；打偏的彈著點與玩家一樣（只有打向玩家時才有 `bulletFlyby`）。死掉的 NPC 一樣變成可搜刮的屍體（`killer` 記錄是誰殺的）。
+- **聽覺**：NPC 之間**只聽槍聲**（`noise.kind === 'shot'`，來源是 NPC id）：其他陣營開的槍會引來調查（同陣營由群組通知處理）；腳步、換彈等其他 NPC 聲音一律不聽。對中立 / 友好的 NPC，玩家的腳步、換彈、搜刮聲不會引來他們（槍聲仍會 → 他們趕來，看到敵對陣營就打起來）。玩家一樣聽得到 NPC 的槍聲，可以坐收漁翁之利。
+- **效能**：目標掃描節流（0.3～0.5 秒）、LOS 只對最近 3 個候選、交戰中的 NPC 不論多遠至少 1/15 秒一個 tick。12 個敵人時 AI 平均耗時約為原本的 1.0～1.3 倍（見 14.8）。
+- **中立盯著看**：中立的 NPC 在巡邏狀態、玩家 20m 內且在視野內（每 0.3 秒檢查）時停下腳步、轉向玩家（`watching`）。
+
+### 14.5 挑釁（`ai/Provoke.ts`，純函式）
+讓中立 / 友好的 NPC 在**本場** Raid 變成敵對（自己企業的穿越者不會被挑釁）：
+- **打中他**（`takeHit`）：他和同群組（`EnemySpawn.group`）的隊友一起被激怒；
+- **2m 內開槍**（`shotProvokes`，`EnemyManager` 訂閱玩家的槍聲 noise）；
+- **瞄準他**：準心落在他身上、15m 內（腰射或瞄準都算）累積計時，**1 秒**先警告（頭上橘色「！」+ alert 聲），**2 秒**翻臉（紅色「！」）；準心移開後計時以 2 倍速倒退（`stepAim`、`EnemyManager.updateAim`、`RaidScene.updateAimTarget`）。
+
+### 14.6 地圖與衝突事件
+- `harbor1990/data.ts`：新增警衛巡邏 `whpatrol`（倉庫南側外牆，正對倉庫南門）與 `yardpatrol`（貨櫃堆場北緣），與黑道 `wh` / `yard` 的巡邏路線有交集；企業穿越者 `rivalD`（貨櫃頂）、`rivalE`（辦公大樓走廊，和警衛的巡邏線相交）。生成數量超過上限 12 時隨機取捨（`EnemyManager.spawn`），所以每場的陣營組合都不一樣。
+- **衝突事件**（`RaidScene.triggerConflict`）：Raid 開始 2～5 分鐘後觸發一次：挑一組「對另一組敵對」的巡邏隊（優先警衛），派他們（`Enemy.dispatch`，覆蓋巡邏路線直到抵達或 120 秒）前往對方的地盤巡查，提高交火機會。
+
+### 14.7 介面
+- **頭頂標記**（`ui/FactionMarkers.ts`）：中立 = 黃色菱形、友好 = 綠色菱形（附陣營小字）；口頭警告 = 橘色「！」、已被挑釁 = 紅色「！」；敵對的不顯示。只在 25m 內、相機到頭頂沒有被擋住（每 0.2 秒一次視線檢查）時顯示。是世界座標投影的浮層，不是 HUD 元素，所以不需要加入觸控版面。
+- **基地**：新互動站「**陣營情報**」（南牆前，`hub.ts` 的 `faction`）→ `FactionPanel`：所屬企業與加成、五個陣營的聲望條（含 -20 / 0 / +40 刻度）、態度與說明、轉換企業；窄螢幕（874×402）可捲動。
+- **時光機面板**：「各陣營對你的態度」五個小標籤，穩定度那行註明企業加成。**時代商行**新增「找人打點」分頁（`TraderPanel`）。**選擇企業**畫面（`CorpPanel`）。
+- 企業穿越者的模型顏色（`FACTIONS[f].tint`）：晨星 = 白金、時穹 = 青藍、赤焰 = 紅。
+
+### 14.8 第二階段準備
+- 陣營關係、聲望門檻、聲望變化、打點與企業加成**全部在 `data/factions.ts`（純函式）與 `EconomyService`**（`chooseCorp / switchCorp / recordKill / bribe / attitudeToward / corpTruce`）；前端（AI、UI）只呼叫函式，不直接改 `Profile`，之後可以整層搬到伺服器。`Enemy` 對陣營的所有查詢走 `EnemyContext.factions`（`FactionCtx`：`playerCorp / attitude / hostile`），真人玩家同樣有所屬企業與聲望，規則與 NPC 一致（把另一個玩家當成一個 `Tgt` 即可）。
+- 存檔：`PROFILE_VERSION` = 4（`corp`、`reputation`；`RaidState.truce / repDelta / bribed / compensation`；`RaidResult.repChanges / compensation`）。
+
+### 14.9 測試
+- 單元（`tests/factions.test.ts`）：關係表（含對稱與休戰）、聲望門檻與態度、初始聲望、聲望變化（殺人、友好 -25、夾限 ±100、友軍賠償與不扣成負數）、打點（+5、每場 +15、每個陣營各自的額度、下一場重置、需要舊台幣、被拒絕不扣錢）、企業（選擇一次、折扣、穩定度 +60、轉換費用與聲望重置）、存檔 migrate、休戰擲骰（固定 seed 可重現、比例約 40%）、挑釁（打中連同群組、2m 開槍、瞄準 1 秒警告 / 2 秒翻臉 / 15m 外不算 / 移開倒退）、Enemy 整合（中立不攻擊、盯著看、不被腳步引來、警衛與黑道互相鎖定並打到一方死亡、企業休戰與否、牆擋住不鎖定、只聽其他陣營的槍聲、友好警衛幫忙打黑道）。
+- Playwright（`?debug=1`）：選擇企業畫面與加成、警衛 vs 黑道交火並留下屍體與槍聲引來旁觀者、中立警衛黃色標記 + 瞄準警告 / 翻臉、友好警衛不攻擊並幫忙、殺人後結算與重新整理保留、打點與上限、企業休戰與敵對、效能比較、手機 874×402 的陣營頁面。

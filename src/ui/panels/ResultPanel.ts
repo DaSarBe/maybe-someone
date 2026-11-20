@@ -4,6 +4,7 @@ import type { RaidResult } from '../../items/Profile';
 import { btn, el, fmtCredits } from '../dom';
 import { itemCell } from '../ItemWidgets';
 import { panelFrame, type Panel, type Ui } from '../Ui';
+import { FACTIONS, FACTION_IDS } from '../../data/factions';
 
 /** Raid 結算畫面（撤離成功 / 死亡） */
 export class ResultPanel implements Panel {
@@ -45,6 +46,30 @@ export class ResultPanel implements Panel {
         kept.appendChild(item);
       }
       f.body.appendChild(kept);
+    }
+
+    // 陣營聲望變化（殺人、打點）與誤傷友軍的賠償
+    const changes = FACTION_IDS.filter((f) => (result.repChanges?.[f] ?? 0) !== 0);
+    if (changes.length > 0 || (result.compensation ?? 0) > 0) {
+      f.body.appendChild(el('div', 'col-head', '陣營聲望變化'));
+      const box = el('div', 'rep-changes');
+      box.dataset.role = 'rep-changes';
+      for (const id of changes) {
+        const d = result.repChanges![id]!;
+        const row = el('div', `rep-change ${d > 0 ? 'up' : 'down'}`);
+        row.dataset.faction = id;
+        row.dataset.delta = String(d);
+        row.style.setProperty('--fc', FACTIONS[id].color);
+        row.append(el('span', 'rc-name', FACTIONS[id].name), el('b', 'rc-delta', `${d > 0 ? '▲ +' : '▼ '}${d}`));
+        box.appendChild(row);
+      }
+      if ((result.compensation ?? 0) > 0) {
+        const row = el('div', 'rep-change down comp');
+        row.dataset.role = 'compensation';
+        row.append(el('span', 'rc-name', '誤傷友軍賠償'), el('b', 'rc-delta', `－${fmtCredits(result.compensation!)}`));
+        box.appendChild(row);
+      }
+      f.body.appendChild(box);
     }
 
     const go = btn('回到基地', onContinue, 'primary go');

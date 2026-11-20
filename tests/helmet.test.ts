@@ -499,8 +499,8 @@ describe('helmet items', () => {
 });
 
 describe('save migration', () => {
-  it('current version is 3 and defaults include an empty helmet slot', () => {
-    expect(PROFILE_VERSION).toBe(3);
+  it('current version is 4 and defaults include an empty helmet slot', () => {
+    expect(PROFILE_VERSION).toBe(4);
     expect(createDefaultProfile().equipment.helmet).toBeNull();
     expect(EQUIP_SLOTS).toContain('helmet');
   });

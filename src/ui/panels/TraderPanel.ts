@@ -3,11 +3,13 @@ import { getTrader } from '../../data/traders';
 import type { Loc } from '../../economy/EconomyService';
 import { traderSellRate } from '../../economy/Trader';
 import type { ItemStack } from '../../items/Inventory';
+import { ATTITUDE_NAME, BRIBE, BRIBE_TARGETS, FACTIONS } from '../../data/factions';
 import { btn, clear, el, fmtCredits } from '../dom';
+import { repBar } from './FactionPanel';
 import { InvCtx, detailPane, itemCell, itemInfo, qtyStepper } from '../ItemWidgets';
 import { panelFrame, type Panel, type Ui } from '../Ui';
 
-type Tab = 'buy' | 'sell';
+type Tab = 'buy' | 'sell' | 'bribe';
 
 export const fmtNtd = (n: number): string => `NT$${Math.round(n).toLocaleString('en-US')}`;
 
@@ -69,15 +71,18 @@ export class TraderPanel implements Panel {
     const cur = eco.traderCurrency();
     this.haveEl.textContent = `舊台幣 ${fmtNtd(cur?.have ?? 0)}`;
     clear(this.tabsEl); clear(this.listEl); clear(this.colC);
-    for (const [t, label] of [['sell', '賣給商人'], ['buy', '向商人買']] as const) {
+    for (const [t, label] of [['sell', '賣給商人'], ['buy', '向商人買'], ['bribe', '找人打點']] as const) {
       const b = btn(label, () => this.setTab(t), `tab${this.tab === t ? ' on' : ''}`);
       b.dataset.tab = t;
       this.tabsEl.appendChild(b);
     }
     this.noteEl.textContent = this.tab === 'sell'
       ? '未來商品在這裡價格很高，其他東西只能賣個零頭。每種東西賣太多，商人就不肯出原價。'
-      : '商人只收舊台幣。古董帶回未來可以賺一筆；時晶碎片很貴，但數量有限。';
+      : this.tab === 'buy'
+        ? '商人只收舊台幣。古董帶回未來可以賺一筆；時晶碎片很貴，但數量有限。'
+        : `商行認識港區各路人馬。花一點舊台幣請他們說句好話，警衛或海龍幫對你的印象會好一些（每次 +${BRIBE.gain}，同一陣營每場最多 +${BRIBE.perRaidMax}）。聲望是永久累積的。`;
 
+    if (this.tab === 'bribe') { this.renderBribeList(); this.colC.appendChild(el('p', 'hint', '聲望高於 +40 = 友好：他們不會攻擊你，也不會被你的腳步引來。\n低於 -20 = 敵對：看到你就開火。\n之間是中立：不主動攻擊，但會盯著你。')); return; }
     if (this.tab === 'buy') this.renderBuyList(); else this.renderSellList();
 
     this.colC.appendChild(detailPane(ctx, {
@@ -96,6 +101,36 @@ export class TraderPanel implements Panel {
     info.append(el('b', '', def.name), el('small', '', sub));
     row.append(itemCell(stack, {}), info, el('span', 'price ntd', price));
     return row;
+  }
+
+  private renderBribeList(): void {
+    const { ui } = this;
+    const eco = ui.economy;
+    const have = eco.traderCurrency()?.have ?? 0;
+    for (const f of BRIBE_TARGETS) {
+      const d = FACTIONS[f];
+      const rep = eco.reputationOf(f);
+      const att = eco.attitudeToward(f);
+      const info = eco.bribeInfo(f);
+      const row = el('div', `faction-row bribe-row att-${att}`);
+      row.dataset.faction = f;
+      row.dataset.rep = String(rep);
+      row.dataset.left = String(info.left);
+      row.style.setProperty('--fc', d.color);
+      const head = el('div', 'faction-head');
+      head.append(el('b', '', d.name), el('span', `att-tag att-${att}`, ATTITUDE_NAME[att]), el('span', 'rep-num', `${rep > 0 ? '+' : ''}${rep}`));
+      const act = el('div', 'bribe-act');
+      const b = btn(`打點 ${fmtNtd(info.cost)}（+${info.gain}）`, () => {
+        const r = eco.bribe(f);
+        if (ui.report(r, `${d.name}對你的印象好了一點`)) { ui.audio.playUi('buy', 0.7); ui.noise('trade'); }
+      }, 'primary gold');
+      b.dataset.action = 'bribe';
+      b.dataset.faction = f;
+      if (have < info.cost && info.left > 0) b.title = '舊台幣不夠';
+      act.append(b, el('small', '', info.left > 0 ? `本場還能打點 ${info.left} 次（已 +${info.used}）` : '本場已打點到上限'));
+      row.append(head, repBar(rep), act);
+      this.listEl.appendChild(row);
+    }
   }
 
   private renderBuyList(): void {

@@ -439,7 +439,7 @@ describe('mods follow the weapon', () => {
   });
 
   it('save: v2 saves migrate to the current version keeping weapons; illegal mods are cleaned', () => {
-    expect(PROFILE_VERSION).toBe(3);
+    expect(PROFILE_VERSION).toBe(4);
     const v2 = { ...createDefaultProfile(), version: 2 } as any;
     v2.equipment.primary = { id: 'rifle', qty: 1, dur: 10 };
     const m = migrateProfile(v2);

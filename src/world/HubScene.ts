@@ -10,6 +10,8 @@ import { PauseMenu } from '../ui/PauseMenu';
 import { Ui } from '../ui/Ui';
 import { ResultPanel } from '../ui/panels/ResultPanel';
 import { BenchPanel } from '../ui/panels/BenchPanel';
+import { CorpPanel } from '../ui/panels/CorpPanel';
+import { FactionPanel } from '../ui/panels/FactionPanel';
 import { ShopPanel } from '../ui/panels/ShopPanel';
 import { TimeMachinePanel } from '../ui/panels/TimeMachinePanel';
 import { TransferPanel } from '../ui/panels/TransferPanel';
@@ -26,6 +28,7 @@ const LABEL_POS: Record<StationId, [number, number, number]> = {
   safe: [-8.5, 2.1, -5.4],
   timemachine: [0, 3.95, -6.6],
   bench: [-3.4, 2.75, 7.2],
+  faction: [2.9, 2.75, 7.2],
 };
 
 /** 未來基地：可走動的 3D 房間，靠近互動站按 E 開啟各種介面 */
@@ -90,6 +93,13 @@ export class HubScene implements Scene {
 
     game.audio.setZones(this.map.reverbZones);
     if (game.economy.profile.pendingResult) this.showResult();
+    else this.askCorp();
+  }
+
+  /** 還沒有所屬企業（新存檔、舊存檔第一次進基地）：先選一家 */
+  private askCorp(): void {
+    if (this.game.economy.corp) return;
+    this.ui.open(new CorpPanel(this.ui, () => { this.game.audio.playUi('confirm'); this.ui.onClosed?.(); }));
   }
 
   exit(): void {
@@ -127,6 +137,7 @@ export class HubScene implements Scene {
     pl('#4ade80', 36, 7, 3.2, 3.7, 15);
     pl('#ff3dcb', 36, -7, 3.2, -5.4, 15);
     pl('#ffa04a', 34, -3.4, 3.3, 6.2, 14);
+    pl('#9a7bff', 30, 2.9, 3.3, 6.2, 14);
     pl('#ffd2a0', 18, -3.4, 1.6, 4.6, 7);
     pl('#dfe9ff', 40, 0, 4.0, 0, 20);
     pl('#35e1ff', 26, 0, 3.8, 5, 15);
@@ -182,6 +193,7 @@ export class HubScene implements Scene {
       case 'shop': ui.open(new ShopPanel(ui)); break;
       case 'upgrade': ui.open(new UpgradePanel(ui)); break;
       case 'bench': ui.open(new BenchPanel(ui)); break;
+      case 'faction': ui.open(new FactionPanel(ui)); break;
       case 'timemachine': ui.open(new TimeMachinePanel(ui, (era) => this.depart(era))); break;
     }
   }
@@ -200,6 +212,7 @@ export class HubScene implements Scene {
     this.ui.open(new ResultPanel(this.ui, res, () => {
       this.game.economy.acknowledgeResult();
       this.ui.close(false, true);
+      this.askCorp();
     }));
   }
 

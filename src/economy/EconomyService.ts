@@ -13,6 +13,10 @@ import {
 } from '../items/Profile';
 import type { SaveService } from '../save/SaveService';
 import { getTrader } from '../data/traders';
+import {
+  ALLY_KILL_COMPENSATION, BRIBE, BRIBE_TARGETS, FACTION_IDS, SWITCH_CORP_COST, attitudeOf, clampRep, corpPriceMult, initialReputation,
+  isCorp, killRepChanges, rollCorpTruce, switchCorpReputation, type Attitude, type CorpId, type FactionId,
+} from '../data/factions';
 import { buyPrice, dateKey, sellPrice } from './Pricing';
 import { rollTraderStock, traderSellTotal, type TraderOffer } from './Trader';
 
@@ -24,7 +28,7 @@ export type WeaponRef = { equip: EquipSlot } | { loc: Loc };
 export type FailCode =
   | 'invalid' | 'no_credits' | 'full' | 'overweight' | 'in_raid' | 'not_in_raid' | 'locked'
   | 'max_level' | 'not_equippable' | 'not_for_sale' | 'already_in_raid'
-  | 'no_trader' | 'no_stock' | 'no_currency' | 'not_tradable' | 'incompatible';
+  | 'no_trader' | 'no_stock' | 'no_currency' | 'not_tradable' | 'incompatible' | 'limit';
 
 export type Result<T extends object = object> = ({ ok: true } & T) | { ok: false; code: FailCode; reason: string };
 
@@ -45,6 +49,7 @@ const REASONS: Record<FailCode, string> = {
   no_currency: '舊台幣不夠',
   not_tradable: '商人不收這個',
   incompatible: '這個配件不能裝在這把武器上',
+  limit: '已經到達上限',
 };
 
 const fail = (code: FailCode, reason?: string): { ok: false; code: FailCode; reason: string } => ({
@@ -97,7 +102,14 @@ export class EconomyService {
 
   today(): string { return dateKey(this.now()); }
   sellPriceOf(id: string): number { return sellPrice(id, this.today()); }
-  buyPriceOf(id: string): number { return buyPrice(id, this.today()); }
+  /** 商店售價（含所屬企業的折扣：晨星護甲 / 頭盔 9 折、赤焰武器 / 配件 9 折） */
+  buyPriceOf(id: string): number { return this.shopPrice(this.p, id); }
+  private shopPrice(p: Pick<Profile, 'corp'>, id: string): number {
+    const base = buyPrice(id, dateKey(this.now()));
+    const cat = getItem(id)?.category;
+    const m = cat ? corpPriceMult(p.corp, cat) : 1;
+    return m === 1 ? base : Math.max(1, Math.round(base * m));
+  }
   /** 堆疊的估價：武器要加上已安裝配件的價值 */
   valueOf(s: ItemStack): number {
     return (this.sellPriceOf(s.id) + modIds(s.mods).reduce((n, id) => n + this.sellPriceOf(id), 0)) * s.qty;
@@ -194,7 +206,7 @@ export class EconomyService {
       if (!def || !Number.isInteger(qty) || qty < 1) return fail('invalid');
       if (!SHOP_CATEGORIES.includes(def.category)) return fail('not_for_sale');
       if (p.raid) return fail('in_raid');
-      const cost = buyPrice(itemId, dateKey(this.now())) * qty;
+      const cost = this.shopPrice(p, itemId) * qty;
       if (cost > p.credits) return fail('no_credits');
       const stash = this.inv(p, 'stash');
       const dur = freshDur(def);
@@ -447,7 +459,7 @@ export class EconomyService {
       const w = this.weaponAt(p, weapon);
       if (!w) return fail('invalid');
       if (!canMount(w.id, attId)) return fail('incompatible');
-      const cost = buyPrice(attId, dateKey(this.now()));
+      const cost = this.shopPrice(p, attId);
       if (cost > p.credits) return fail('no_credits');
       const slot = ATTACHMENTS[attId].slot;
       const old = w.mods?.[slot] ?? null;
@@ -502,7 +514,11 @@ export class EconomyService {
       if (!era) return fail('invalid');
       if (!era.unlocked) return fail('locked');
       const duration = raidDuration(p, opts.testMap ? TEST_MAP_DURATION : era.baseDuration);
-      p.raid = { era: eraId, startedAt: this.now(), duration, snapshot: this.bodyCounts(p), trade: { bought: {}, sold: {} } };
+      const startedAt = this.now();
+      p.raid = {
+        era: eraId, startedAt, duration, snapshot: this.bodyCounts(p), trade: { bought: {}, sold: {} },
+        truce: rollCorpTruce(startedAt), repDelta: {}, bribed: {}, compensation: 0,
+      };
       return { ok: true, duration };
     });
   }
@@ -585,8 +601,12 @@ export class EconomyService {
       p.stats.raids++;
       p.carried = [];
       p.secure = [];
+      // 誤傷友軍的賠償：從信用點扣（不會扣到負數）
+      const compensation = Math.min(p.credits, Math.max(0, Math.floor(raid.compensation ?? 0)));
+      p.credits -= compensation;
       const result: RaidResult = {
         outcome, era: raid.era, items, kept, value: valueOf(items), interrupted, at: this.now(),
+        repChanges: { ...(raid.repDelta ?? {}) }, compensation,
       };
       p.raid = null;
       p.pendingResult = result;
@@ -714,6 +734,112 @@ export class EconomyService {
   resetProfile(): void {
     this.save.remove(PROFILE_KEY);
     this.p = createDefaultProfile();
+    this.persist();
+  }
+
+  // ---------------------------------------------------------------- 陣營與聲望
+  get corp(): CorpId | null { return this.p.corp; }
+  reputationOf(f: FactionId): number { return this.p.reputation[f] ?? 0; }
+  reputations(): Readonly<Record<FactionId, number>> { return this.p.reputation; }
+  /** 玩家對某陣營的態度（敵對 < -20、友好 > +40）；所屬企業一定友好 */
+  attitudeToward(f: FactionId): Attitude { return f === this.p.corp ? 'friendly' : attitudeOf(this.reputationOf(f)); }
+  /** 這一場 Raid 企業之間是否休戰（不在 Raid 中 = false） */
+  get corpTruce(): boolean { return !!this.p.raid?.truce; }
+
+  /** 第一次選擇所屬企業（新存檔與舊存檔進基地時）。已有企業要走 switchCorp（收費） */
+  chooseCorp(id: CorpId): Result<{ corp: CorpId }> {
+    return this.tx((p) => {
+      if (!isCorp(id)) return fail('invalid');
+      if (p.corp) return fail('invalid', '已經加入企業了');
+      if (p.raid) return fail('in_raid');
+      p.corp = id;
+      p.reputation = { ...p.reputation };
+      for (const f of FACTION_IDS) if (isCorp(f)) p.reputation[f] = initialReputation(id)[f];
+      return { ok: true, corp: id };
+    });
+  }
+
+  /** 花大錢轉換企業：企業聲望重置（guard / triad 保留） */
+  switchCorp(id: CorpId): Result<{ corp: CorpId; cost: number }> {
+    return this.tx((p) => {
+      if (!isCorp(id)) return fail('invalid');
+      if (p.raid) return fail('in_raid');
+      if (!p.corp) return fail('invalid', '請先選擇企業');
+      if (p.corp === id) return fail('invalid', '你已經是這家企業的人了');
+      if (p.credits < SWITCH_CORP_COST) return fail('no_credits');
+      p.credits -= SWITCH_CORP_COST;
+      p.corp = id;
+      p.reputation = switchCorpReputation(p.reputation, id);
+      return { ok: true, corp: id, cost: SWITCH_CORP_COST };
+    });
+  }
+
+  /** 改變聲望（內部）：套用上下限，自己的企業固定不變；Raid 中同時記入本場變化。回傳實際變動 */
+  private bumpRep(p: Profile, f: FactionId, delta: number): number {
+    if (f === p.corp) return 0;
+    const before = p.reputation[f] ?? 0;
+    const after = clampRep(before + delta);
+    p.reputation[f] = after;
+    const real = after - before;
+    if (real !== 0 && p.raid) {
+      p.raid.repDelta ??= {};
+      p.raid.repDelta[f] = (p.raid.repDelta[f] ?? 0) + real;
+    }
+    return real;
+  }
+
+  /**
+   * 玩家殺死了某陣營的成員（只在 Raid 中；NPC 之間互相殺不算）。
+   * 友軍（自己企業）：聲望不變，結算時賠償信用點。其他：見 data/factions.ts killRepChanges。
+   * 回傳實際的聲望變化。
+   */
+  recordKill(victim: FactionId): Result<{ changes: Partial<Record<FactionId, number>>; ally: boolean }> {
+    return this.tx((p) => {
+      if (!p.raid) return fail('not_in_raid');
+      if (victim === p.corp) {
+        p.raid.compensation = (p.raid.compensation ?? 0) + ALLY_KILL_COMPENSATION;
+        return { ok: true, changes: {}, ally: true };
+      }
+      const changes: Partial<Record<FactionId, number>> = {};
+      const planned = killRepChanges(victim, attitudeOf(p.reputation[victim] ?? 0));
+      for (const [f, d] of Object.entries(planned) as [FactionId, number][]) {
+        const real = this.bumpRep(p, f, d);
+        if (real !== 0) changes[f] = real;
+      }
+      return { ok: true, changes, ally: false };
+    });
+  }
+
+  /** 還能對某陣營打點幾次（本場；每次 +5，每個陣營每場最多 +15） */
+  bribeInfo(f: FactionId): { cost: number; gain: number; left: number; used: number } {
+    const used = this.p.raid?.bribed?.[f] ?? 0;
+    return { cost: BRIBE.cost, gain: BRIBE.gain, used, left: Math.max(0, Math.floor((BRIBE.perRaidMax - used) / BRIBE.gain)) };
+  }
+
+  /** 在時代商行「找人打點」：付舊台幣（背包裡）換聲望。只限 guard / triad，每場每個陣營最多 +15 */
+  bribe(f: FactionId): Result<{ gain: number; cost: number }> {
+    return this.tx((p) => {
+      const raid = p.raid;
+      if (!raid) return fail('not_in_raid');
+      const def = getTrader(raid.era);
+      if (!def) return fail('no_trader');
+      if (!BRIBE_TARGETS.includes(f)) return fail('invalid', '這個陣營不收紅包');
+      raid.bribed ??= {};
+      const used = raid.bribed[f] ?? 0;
+      if (used + BRIBE.gain > BRIBE.perRaidMax) return fail('limit', '這一場已經打點到上限了');
+      const carried = this.inv(p, 'carried');
+      if (carried.count(def.currency) < BRIBE.cost) return fail('no_currency');
+      if ((p.reputation[f] ?? 0) >= 100) return fail('limit', '關係已經好到不能再好了');
+      carried.remove(def.currency, BRIBE.cost);
+      const real = this.bumpRep(p, f, BRIBE.gain);
+      raid.bribed[f] = used + BRIBE.gain;
+      return { ok: true, gain: real, cost: BRIBE.cost };
+    });
+  }
+
+  /** 測試掛鉤：直接設定聲望（只有測試與 ?debug=1 的除錯掛鉤使用） */
+  debugSetReputation(f: FactionId, v: number): void {
+    this.p.reputation[f] = clampRep(v);
     this.persist();
   }
 

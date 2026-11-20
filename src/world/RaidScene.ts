@@ -18,6 +18,8 @@ import { SUSTAINED_BEAT, searchLoudness } from '../data/noise';
 import { CONTAINER_OPEN_SECONDS } from '../data/search';
 import { asDifficulty, type Difficulty } from '../data/enemies';
 import { NoiseIndicator } from '../ui/NoiseIndicator';
+import { FactionMarkers } from '../ui/FactionMarkers';
+import { FACTIONS, areHostile, type FactionId } from '../data/factions';
 import { LOOT_TABLES, type ContainerLootDef, type ContainerType } from '../data/lootTables';
 import type { Slot } from '../items/Inventory';
 import { autoPickupFromLoot } from '../items/LootActions';
@@ -112,6 +114,14 @@ export class RaidScene implements Scene {
   noiseHud: NoiseIndicator | null = null;
   /** 準心正對著敵人 */
   onTarget = false;
+  /** 頭頂標記（中立 / 友好 / 警告 / 被挑釁） */
+  markers: FactionMarkers | null = null;
+  /** 測試用：強制本場企業休戰（true）或敵對（false）；null = 依存檔的本場擲骰 */
+  truceOverride: boolean | null = null;
+  /** 最近一次衝突事件（派誰去哪裡），除錯與測試用 */
+  lastConflict: { from: FactionId; to: FactionId; ids: string[]; point: THREE.Vector3 } | null = null;
+  /** 玩家最近一次殺人造成的聲望變化（除錯與測試用） */
+  lastKill: { faction: FactionId; changes: Partial<Record<FactionId, number>>; ally: boolean } | null = null;
 
   private resolveLoaded!: () => void;
   private game!: Game;
@@ -142,6 +152,8 @@ export class RaidScene implements Scene {
   private nearC: RaidContainer | null = null;
   private nearTrader = false;
   private t = 0;
+  /** 距離「衝突事件」觸發還有幾秒（Raid 開始後 2～5 分鐘） */
+  private conflictIn = 120 + Math.random() * 180;
   private disposed = false;
   private playerTarget: PlayerTarget = {
     feet: new THREE.Vector3(), eye: new THREE.Vector3(), crouching: false, sprinting: false, moving: false, alive: true,
@@ -250,7 +262,12 @@ export class RaidScene implements Scene {
       bus: game.bus, octree, nav: map.nav, fx: this.fx, trace: this.trace, player: this.playerTarget,
       lightAt: (p) => this.lightAt(p),
       damagePlayer: (base, zone, from, killer, weaponClass) => { this.health.hit(base, zone, from, killer, weaponClass); },
-      onDeath: (e) => this.spawnCorpse(e),
+      onDeath: (e) => { this.spawnCorpse(e); if (e.killer === 'player') this.onPlayerKill(e); },
+      factions: {
+        playerCorp: () => eco.corp,
+        attitude: (f) => eco.attitudeToward(f),
+        hostile: (a, b) => areHostile(a, b, this.corpTruce),
+      },
       surfaceAt: (p) => this.surfaceAt(p),
       castShadow: !touch,
       difficulty: this.difficulty,
@@ -259,6 +276,7 @@ export class RaidScene implements Scene {
     const oa = new THREE.Vector3(), ob = new THREE.Vector3();
     game.audio.setOccluder((a, b) => this.enemies.mover.los(oa.set(a.x, a.y, a.z), ob.set(b.x, b.y, b.z)));
     this.ui.noiseAt = () => ({ x: this.player.position.x, y: this.player.position.y + 1.0, z: this.player.position.z });
+    this.markers = new FactionMarkers(game.container);
     this.noiseHud = new NoiseIndicator(game.container, game.audio, touch ? game.layout : null, () => ({ ear: this.camera.position, yaw: this.player.facingYaw }));
     this.noiseHud.setEnabled(game.controls.get().soundIndicator);
     this.unsubs.push(game.controls.subscribe((c) => this.noiseHud?.setEnabled(c.soundIndicator)));
@@ -305,6 +323,8 @@ export class RaidScene implements Scene {
     game.renderer.autoClear = false;
     this.ready = true;
     this.hud.flash(getEra(this.era)?.name ?? '時空 Raid');
+    // 第二行提示：這一場企業之間是休戰還是敵對
+    window.setTimeout(() => { if (!this.disposed && !this.ended) this.hud.flash(this.truceText()); }, 2800);
     const l = this.loading;
     this.loading = null;
     l?.classList.add('fade');
@@ -324,6 +344,7 @@ export class RaidScene implements Scene {
     this.game.audio.stopMapAmbience();
     this.game.audio.setOccluder(null);
     this.noiseHud?.dispose();
+    this.markers?.dispose();
     this.fx.dispose();
     this.tfx?.dispose();
     this.ui.dispose();
@@ -457,9 +478,60 @@ export class RaidScene implements Scene {
     marker.position.y = 1.2;
     group.add(marker);
     this.scene.add(group);
-    const def: ContainerLootDef = { ...table, name: `${e.def.name}的屍體` };
+    const def: ContainerLootDef = { ...table, name: `${e.displayName}的屍體` };
     const c: RaidContainer = { type: 'corpse', def, pos: e.pos.clone(), loot, opened: false, search: new LootSearch(loot), group, marker, enemy: e };
     this.containers.push(c);
+  }
+
+  // ---------------------------------------------------------------- 陣營
+  /** 這一場企業之間是否休戰（存檔的擲骰結果；測試可覆蓋） */
+  get corpTruce(): boolean { return this.truceOverride ?? this.game.economy.corpTruce; }
+
+  truceText(): string {
+    return this.corpTruce ? '企業之間：本場休戰（穿越者彼此不開火）' : '企業之間：本場敵對（企業穿越者會互相開火）';
+  }
+
+  /** 玩家殺死了一個 NPC：依陣營結算聲望（友軍誤殺 = 結算時賠償） */
+  private onPlayerKill(e: Enemy): void {
+    const r = this.game.economy.recordKill(e.faction);
+    if (!r.ok) return;
+    this.lastKill = { faction: e.faction, changes: r.changes, ally: r.ally };
+    if (r.ally) { this.ui.toast('誤傷友軍！結算時需要賠償', 'err'); return; }
+    const parts = (Object.entries(r.changes) as [FactionId, number][]).map(([f, d]) => `${FACTIONS[f].short} ${d > 0 ? '+' : ''}${d}`);
+    if (parts.length) this.ui.toast(`聲望：${parts.join('　')}`, 'info');
+  }
+
+  /**
+   * 衝突事件：挑一組「對另一組敵對」的巡邏隊（優先警衛），派他們去對方的地盤巡查，提高交火機會。
+   * 回傳是否有派出人（沒有合適的組合就什麼都不做）。
+   */
+  triggerConflict(): boolean {
+    const groups = new Map<string, Enemy[]>();
+    for (const e of this.enemies.list) {
+      if (e.dead || !e.group) continue;
+      (groups.get(e.group) ?? groups.set(e.group, []).get(e.group)!).push(e);
+    }
+    const hostile = (a: FactionId, b: FactionId) => areHostile(a, b, this.corpTruce);
+    const pairs: { from: Enemy[]; to: Enemy[] }[] = [];
+    for (const a of groups.values()) {
+      if (a.every((e) => e.brain.engaged)) continue;
+      for (const b of groups.values()) {
+        if (a === b || !hostile(a[0].faction, b[0].faction)) continue;
+        const d = a[0].pos.distanceTo(b[0].pos);
+        if (d < 18) continue;
+        pairs.push({ from: a, to: b });
+      }
+    }
+    if (pairs.length === 0) return false;
+    // 警衛優先（官方巡邏）
+    const guards = pairs.filter((p) => p.from[0].faction === 'guard');
+    const pool = guards.length ? guards : pairs;
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    const target = pick.to[Math.floor(Math.random() * pick.to.length)];
+    const sent = pick.from.filter((e) => !e.brain.engaged);
+    for (const e of sent) e.dispatch(target.pos);
+    this.lastConflict = { from: pick.from[0].faction, to: pick.to[0].faction, ids: sent.map((e) => e.id), point: target.pos.clone() };
+    return true;
   }
 
   // ---------------------------------------------------------------- 感知用的環境查詢
@@ -490,11 +562,11 @@ export class RaidScene implements Scene {
     return this.health.hit(st.damage, 'head', undefined, killer, st.weaponClass);
   }
   /** 測試掛鉤：在玩家前方 dist 公尺生成敵人（面向玩家）；helmet 見 EnemyManager.debugSpawn */
-  debugSpawnEnemy(kind: 'guard' | 'thug' | 'rival_agent', dist: number, helmet?: { id: string; dur: number } | null): Promise<Enemy> {
+  debugSpawnEnemy(kind: 'guard' | 'thug' | 'rival_agent', dist: number, helmet?: { id: string; dur: number } | null, faction?: FactionId): Promise<Enemy> {
     const p = this.player.position;
     const yaw = this.player.facingYaw;
     const pos = new THREE.Vector3(p.x - Math.sin(yaw) * dist, p.y, p.z - Math.cos(yaw) * dist);
-    return this.enemies.debugSpawn(kind, pos, this.scene, helmet);
+    return this.enemies.debugSpawn(kind, pos, this.scene, helmet, faction);
   }
 
   end(outcome: 'extract' | 'death', killedBy?: string, headshot = false): void {
@@ -509,6 +581,7 @@ export class RaidScene implements Scene {
     this.hud.setPrompt(null);
     this.hud.setProgress(null);
     this.chud.setVisible(false);
+    this.markers?.setVisible(false);
     this.game.input.lookScale = 1;
     this.game.input.ads = 0;
     this.game.bus.emit('raidEnded', { outcome });
@@ -665,6 +738,8 @@ export class RaidScene implements Scene {
     pt.laser = this.weapons.tacticalActive === 'laser';
     pt.alive = !this.health.dead;
     this.enemies.update(dt);
+    this.conflictIn -= dt;
+    if (this.conflictIn <= 0 && this.conflictIn + dt > 0) this.triggerConflict();
 
     // 穩定度倒數
     const rem = this.remaining;
@@ -755,7 +830,7 @@ export class RaidScene implements Scene {
       }
       this.health.update(frameDt);
       this.weapons.update(frameDt);
-      this.updateAimTarget();
+      this.updateAimTarget(frameDt);
       this.tfx?.update(this.weapons.tacticalActive, this.vm, this.trace, this.weapons.adsAmount);
     }
     this.fx.update(frameDt);
@@ -764,6 +839,7 @@ export class RaidScene implements Scene {
     this.projScreen.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.projScreen);
     this.enemies.updateAnim(frameDt, this.frustum);
+    if (!this.ended) this.markers?.update(frameDt, this.enemies.list, this.camera, game.width, game.height, (a, b) => this.enemies.mover.los(a, b));
     game.audio.updateListener(this.camera);
     game.audio.updateMapAmbience(frameDt);
     this.trader?.update(frameDt, true);
@@ -820,11 +896,14 @@ export class RaidScene implements Scene {
   }
 
   /** 準心下是否有（看得到的）敵人：命中標記顏色與觸控輔助瞄準用 */
-  private updateAimTarget(): void {
+  private updateAimTarget(dt: number): void {
     this.camera.getWorldPosition(this.aimOrigin);
     this.camera.getWorldDirection(this.aimDir);
-    const h = this.enemies.raycast(this.aimOrigin, this.aimDir, 70);
+    const h = this.enemies.pick(this.aimOrigin, this.aimDir, 70);
     this.onTarget = !!h && this.enemies.mover.los(this.aimOrigin, h.point);
+    // 準心停在中立 / 友好的 NPC 身上（15m 內、手上有武器）：累積瞄準挑釁
+    const armed = !!this.weapons.current && !this.health.dead && !this.ui.isOpen;
+    this.enemies.updateAim(dt, armed && this.onTarget && h ? h.e : null, h ? h.distance : 99);
   }
 }
 

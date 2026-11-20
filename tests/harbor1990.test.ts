@@ -39,7 +39,7 @@ describe('harbor1990 data', () => {
     expect(EVAC_POINTS).toHaveLength(3);
     expect(EVAC_POINTS.filter((e) => e.random)).toHaveLength(2);
     expect(ENEMY_SPAWNS.length).toBeGreaterThanOrEqual(14);
-    expect(ENEMY_SPAWNS.length).toBeLessThanOrEqual(18);
+    expect(ENEMY_SPAWNS.length).toBeLessThanOrEqual(22);
     const kinds = new Set(ENEMY_SPAWNS.map((e) => e.kind));
     expect(kinds).toEqual(new Set(['guard', 'thug', 'rival_agent']));
     expect(ENEMY_SPAWNS.filter((e) => e.kind === 'rival_agent').length).toBeGreaterThanOrEqual(2);

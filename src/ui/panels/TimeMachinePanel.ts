@@ -5,6 +5,8 @@ import { btn, clear, el, fmtCredits, fmtTime } from '../dom';
 import { itemCell } from '../ItemWidgets';
 import { EQUIP_LABELS } from '../ItemWidgets';
 import { panelFrame, type Panel, type Ui } from '../Ui';
+import { attitudeChips } from './FactionPanel';
+import { CORPS, FACTIONS } from '../../data/factions';
 
 const stars = (n: number): string => `${'★'.repeat(n)}${'☆'.repeat(3 - n)}`;
 const DIFFICULTY_NAME: Record<number, string> = { 1: '簡單', 2: '普通', 3: '困難' };
@@ -92,9 +94,12 @@ export class TimeMachinePanel implements Panel {
       this.colB.appendChild(box);
     }
     this.colB.appendChild(el('div', 'col-head', '出發前確認'));
-    const stay = el('div', 'stab-line', `預計停留 ${fmtTime(eco.raidDurationSec(this.selected))}（時空穩定度；基礎 ${fmtTime(era?.baseDuration ?? 300)}，穩定器升級會再延長）`);
+    const corpBonus = eco.corp ? CORPS[eco.corp].stabilityBonus ?? 0 : 0;
+    const stay = el('div', 'stab-line', `預計停留 ${fmtTime(eco.raidDurationSec(this.selected))}（時空穩定度；基礎 ${fmtTime(era?.baseDuration ?? 300)}，穩定器升級會再延長${corpBonus ? `；${FACTIONS[eco.corp!].name} +${corpBonus} 秒` : ''}）`);
     stay.dataset.stay = String(eco.raidDurationSec(this.selected));
     this.colB.appendChild(stay);
+    this.colB.appendChild(el('div', 'col-head', '各陣營對你的態度'));
+    this.colB.appendChild(attitudeChips(eco));
     const list = el('div', 'check-list');
     if (all.length === 0) list.appendChild(el('p', 'hint', '你身上沒有任何物品。\n可以空手出發，但最好先去倉庫櫃拿點裝備。'));
     for (const e of equipped) list.appendChild(this.listRow(e.stack, `裝備 ・ ${EQUIP_LABELS[e.slot]}`));

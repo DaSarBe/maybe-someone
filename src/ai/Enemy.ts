@@ -19,6 +19,8 @@ import { inFieldOfView, tacticalVision, visionGain } from './Perception';
 import { effectiveWeapon, type EffectiveWeapon } from '../combat/WeaponMods';
 import type { WeaponMods } from '../data/attachments';
 import { RUSH_RANGE, SNEAK_APPROACH, hearChance, isNpcSource, shouldRush, shouldSneak } from './Tactics';
+import { FACTIONS, factionOfKind, staticHostile, type Attitude, type CorpId, type FactionId } from '../data/factions';
+import { stepAim, type AimState } from './Provoke';
 
 /** 玩家的感知用資訊（每幀由場景更新同一個物件） */
 export interface PlayerTarget {
@@ -38,6 +40,25 @@ export interface PlayerTarget {
   laser?: boolean;
 }
 
+/** 陣營查詢（RaidScene 以玩家的聲望與本場的企業休戰狀態提供；測試可省略 = 全部敵對玩家） */
+export interface FactionCtx {
+  playerCorp(): CorpId | null;
+  /** 玩家對某陣營的態度（聲望決定；所屬企業一定友好） */
+  attitude(f: FactionId): Attitude;
+  /** 兩個陣營此刻是否互相敵對（企業之間看本場是否休戰） */
+  hostile(a: FactionId, b: FactionId): boolean;
+}
+
+const LEGACY_FACTIONS: FactionCtx = { playerCorp: () => null, attitude: () => 'hostile', hostile: (a, b) => staticHostile(a, b) };
+
+/** AI 的目標：玩家，或另一個敵人（NPC 之間互相開火）。pt 是被感知的資訊（位置、姿態）；enemy 為 null 代表玩家 */
+export interface Tgt { pt: PlayerTarget; enemy: Enemy | null }
+
+/** NPC 掃描其他 NPC 的間隔（秒）與範圍（乘在視距上） */
+export const SCAN_INTERVAL: [number, number] = [0.3, 0.5];
+/** 中立的 NPC 盯著玩家看的距離（公尺） */
+export const WATCH_RANGE = 20;
+
 export interface EnemyContext {
   bus: GameBus;
   mover: EnemyMover;
@@ -48,8 +69,13 @@ export interface EnemyContext {
   /** 位置的亮度 0..1（暗處發現得慢） */
   lightAt(p: THREE.Vector3): number;
   damagePlayer(base: number, zone: HitZone, from: THREE.Vector3, killer: string, weaponClass: WeaponClass): void;
-  alertGroup(group: string, pos: THREE.Vector3, exceptId: string): void;
+  alertGroup(group: string, pos: THREE.Vector3, exceptId: string, tgt?: Tgt): void;
   onDeath(e: Enemy): void;
+  /** 陣營關係（省略 = 玩家對所有陣營敵對，舊行為） */
+  factions?: FactionCtx;
+  /** 玩家打中了這個群組的成員：同群組一起被激怒 */
+  provokeGroup?(group: string): void;
+  byId?(id: string): Enemy | undefined;
   castShadow: boolean;
   /** 場上所有敵人（分離力用） */
   readonly all: Enemy[];
@@ -83,6 +109,8 @@ export class Enemy {
   readonly brain = new EnemyBrain();
   readonly pos = new THREE.Vector3();
   readonly group: string | null;
+  /** 陣營（決定對玩家的態度、和誰互相開火） */
+  readonly faction: FactionId;
   readonly weaponId: string;
   readonly stats: WeaponStats;
   /** 武器上的配件與套用後的數值（滅音器的槍聲、擴容彈匣的彈匣容量） */
@@ -97,6 +125,16 @@ export class Enemy {
   helmetDur = 0;
   /** 是不是被爆頭打死的 */
   killedByHeadshot = false;
+  /** 被挑釁（這一場 Raid 對玩家敵對）、口頭警告計時（秒）、瞄準挑釁計時 */
+  provoked = false;
+  warnT = 0;
+  readonly aim: AimState = { t: 0, warned: false };
+  /** 殺死他的人：'player' 或另一個敵人；還活著 = null */
+  killer: Enemy | 'player' | null = null;
+  /** 衝突事件：前往某地巡查（巡邏狀態下覆蓋原本的巡邏路線） */
+  mission: { point: THREE.Vector3; t: number } | null = null;
+  /** 中立：正盯著玩家看 */
+  watching = false;
   mag: number;
   reserve: number;
   mode: Mode = 'fight';
@@ -120,6 +158,14 @@ export class Enemy {
   distToPlayer = 0;
   tickCount = 0;
   private acc = Math.random() * 0.03;
+  /** 被其他 NPC 當作目標時的感知資訊（位置、姿態；每個 tick 更新） */
+  private readonly view: PlayerTarget = { feet: this.pos, eye: new THREE.Vector3(), crouching: false, sprinting: false, moving: false, alive: true };
+  private readonly selfTgt: Tgt = { pt: this.view, enemy: this };
+  private readonly playerTgt: Tgt;
+  private tgt: Tgt | null = null;
+  private scanT = Math.random() * 0.4;
+  private watchT = Math.random() * 0.3;
+  private candBuf: { o: Enemy; d: number }[] = [];
   private anim: EnemyAnim | null = null;
   private helmetObj: THREE.Object3D | null = null;
   private pingAt = -9;
@@ -169,6 +215,8 @@ export class Enemy {
 
   constructor(readonly def: EnemyDef, spawn: EnemySpawn, private ctx: EnemyContext) {
     this.group = spawn.group ?? null;
+    this.faction = spawn.faction ?? factionOfKind(def.kind, null, () => 0);
+    this.playerTgt = { pt: ctx.player, enemy: null };
     this.pos.copy(spawn.position);
     // RaidMap 的 yaw 沿用玩家的慣例（forward = (-sin yaw, -cos yaw)）；敵人內部 forward = (sin f, cos f)
     this.facing = (spawn.yaw ?? 0) + Math.PI;
@@ -194,7 +242,7 @@ export class Enemy {
 
   /** 載入模型（非同步）；完成前敵人用不可見的狀態運作，不影響邏輯 */
   async load(): Promise<void> {
-    const inst = await createEnemyModel(this.def, this.weaponId, this.ctx.castShadow, this.helmetId ? HELMET_STATS[this.helmetId].level : 0);
+    const inst = await createEnemyModel(this.def, this.weaponId, this.ctx.castShadow, this.helmetId ? HELMET_STATS[this.helmetId].level : 0, this.def.kind === 'rival_agent' ? FACTIONS[this.faction].tint : undefined);
     this.root.add(inst.root);
     this.helmetObj = inst.helmet;
     if (inst.helmet) inst.helmet.visible = this.helmetDur > 0;
@@ -217,17 +265,95 @@ export class Enemy {
 
   // ------------------------------------------------------------ 事件
   private get rng(): () => number { return this.ctx.rng ?? Math.random; }
+  private get fx(): FactionCtx { return this.ctx.factions ?? LEGACY_FACTIONS; }
+
+  /** 玩家的態度對這個敵人而言是敵對的嗎：自己企業的穿越者一定友好；被挑釁的一律敵對；其他看聲望 */
+  get hostileToPlayer(): boolean {
+    const f = this.fx;
+    if (this.faction === f.playerCorp()) return false;
+    return this.provoked || f.attitude(this.faction) === 'hostile';
+  }
+
+  /** 頭頂標記用：玩家對這個敵人的有效態度（被挑釁 = 敵對） */
+  get effectiveAttitude(): Attitude {
+    const f = this.fx;
+    if (this.faction === f.playerCorp()) return 'friendly';
+    return this.provoked ? 'hostile' : f.attitude(this.faction);
+  }
+
+  get displayName(): string {
+    return this.def.kind === 'rival_agent' ? `${FACTIONS[this.faction].name}穿越者` : this.def.name;
+  }
+
+  /** 目前的目標（除錯與標記用） */
+  get target(): Tgt | null { return this.tgt; }
+  get targetFeet(): THREE.Vector3 | null { return this.tgt ? this.tgt.pt.feet : null; }
+
+  /** 被玩家挑釁：本場起對玩家敵對（自己企業的穿越者除外） */
+  provokeByPlayer(alert = true): void {
+    if (this.dead || this.provoked || this.faction === this.fx.playerCorp()) return;
+    this.provoked = true;
+    this.warnT = 0;
+    this.aim.t = 0; this.aim.warned = false;
+    if (alert && !this.brain.engaged) {
+      this.tgt = this.playerTgt;
+      this.visionT = 0;
+      this.brain.groupAlert(this.ctx.player.feet);
+    }
+  }
+
+  /** 口頭警告：顯示「！」並發出 alert 聲 */
+  warnPlayer(): void {
+    if (this.dead || this.provoked) return;
+    this.warnT = 2.5;
+    this.voice('alert', 0);
+  }
+
+  /** 準心停在他身上：累積瞄準挑釁（中立與友好的才會被激怒；dist 為玩家到他的距離）。aimed = false 代表準心不在他身上 */
+  aimedAt(dt: number, aimed: boolean, dist: number): void {
+    if (this.dead || this.provoked || this.faction === this.fx.playerCorp() || this.hostileToPlayer) return;
+    const ev = stepAim(this.aim, dt, aimed, dist);
+    if (ev === 'warn') this.warnPlayer();
+    else if (ev === 'hostile') this.provokeByPlayer();
+  }
+
+  /** 衝突事件：前往某地巡查（沒有交戰時覆蓋巡邏路線；到了或超時就恢復巡邏） */
+  dispatch(point: THREE.Vector3): void {
+    if (this.dead) return;
+    this.mission = { point: point.clone(), t: 0 };
+    this.waitT = 0;
+  }
+
+  /** 同群組的人發現了目標：只有「對這個目標也敵對」的成員才會一起行動 */
+  groupAlerted(pos: THREE.Vector3, tgt: Tgt | undefined): void {
+    if (this.dead || this.brain.engaged) return;
+    const t = tgt ?? this.playerTgt;
+    if (t.enemy) { if (t.enemy.dead || !this.fx.hostile(this.faction, t.enemy.faction)) return; }
+    else if (!this.hostileToPlayer) return;
+    this.tgt = t;
+    this.visionT = 0;
+    this.brain.groupAlert(pos);
+  }
   private get difficulty(): Difficulty { return this.ctx.difficulty ?? 2; }
 
   /**
-   * 聽到一個聲音事件（玩家或其他真人發出的；NPC 彼此不聽）。
+   * 聽到一個聲音事件（玩家或其他真人發出的）。NPC 之間只聽槍聲（其他陣營開的槍會引來調查）。
    * 和玩家聽 NPC 用同一張距離表：先看在不在「聽得到的距離」內，再依牆壁遮擋與距離算實際音量，
    * 最後依實際音量 × 聽力 × 難度聽覺倍率擲骰決定有沒有注意到。
    *  - 已進入戰鬥的敵人不會被引走；但聽到換彈會趁機推進
    *  - 聽到換彈且 25m 內：依難度與傾向的機率立刻衝向玩家
    */
   hearNoise(ev: NoiseEvent): HearResult {
-    if (this.dead || ev.source === this.id || isNpcSource(ev.source)) return 'ignored';
+    if (this.dead || ev.source === this.id) return 'ignored';
+    if (isNpcSource(ev.source)) {
+      // NPC 的聲音：只有槍聲會引來其他陣營的人（同陣營的已由群組通知處理）
+      if (ev.kind !== 'shot') return 'ignored';
+      const src = this.ctx.byId?.(ev.source);
+      if (src && src.faction === this.faction) return 'ignored';
+    } else if (ev.kind !== 'shot' && !this.hostileToPlayer) {
+      // 中立 / 友好的 NPC 不會被玩家的腳步、換彈等聲音引來（槍聲仍然會）
+      return 'ignored';
+    }
     const mover = this.ctx.mover;
     const heard = assessHearing(this.eye, ev, (a, b) => mover.los(this.tmp.set(a.x, a.y, a.z), this.tmp2.set(b.x, b.y, b.z)));
     if (!heard.audible) return 'ignored';
@@ -241,8 +367,8 @@ export class Enemy {
   private react(ev: NoiseEvent, dist: number, chance: number, heardDist: number): HearResult {
     if (this.rng() >= chance) return 'missed';
     const at = this.tmp2.set(ev.position.x, ev.position.y, ev.position.z);
-    // 趁換彈衝過來（一次換彈只擲一次骰）
-    if (ev.kind === 'reload') {
+    // 趁換彈衝過來（一次換彈只擲一次骰；只對敵對的玩家）
+    if (ev.kind === 'reload' && !isNpcSource(ev.source) && this.hostileToPlayer) {
       const now = performance.now();
       if (now - this.rushRollAt > 4000) {
         this.rushRollAt = now;
@@ -271,9 +397,18 @@ export class Enemy {
     return this.tmp2.set(at.x + (Math.random() - 0.5) * 2 * err, at.y, at.z + (Math.random() - 0.5) * 2 * err);
   }
 
-  /** 玩家子彈命中。base 為武器基礎傷害（已含距離衰減） */
-  takeHit(base: number, zone: HitZone, from: THREE.Vector3, weaponClass: WeaponClass = 'light'): { killed: boolean; dealt: number } {
+  /**
+   * 子彈命中。base 為武器基礎傷害（已含距離衰減）；attacker 省略 = 玩家，否則是開槍的另一個敵人。
+   * 玩家打中非敵對的 NPC = 挑釁（連同他的群組）。
+   */
+  takeHit(base: number, zone: HitZone, from: THREE.Vector3, weaponClass: WeaponClass = 'light', attacker: Enemy | null = null): { killed: boolean; dealt: number } {
     if (this.dead) return { killed: false, dealt: 0 };
+    const byPlayer = attacker === null;
+    if (byPlayer) {
+      if (this.group && this.ctx.provokeGroup) this.ctx.provokeGroup(this.group);
+      this.provokeByPlayer(false);
+    }
+    const killer: Enemy | 'player' = attacker ?? 'player';
     let r: { damage: number };
     if (zone === 'head') {
       // 爆頭：沒頭盔 = 一槍死；有頭盔依武器類別 × 等級查表（data/helmet.ts），傷害不看武器數值
@@ -285,7 +420,7 @@ export class Enemy {
       }
       if (h.helmetHit) this.helmetPing();
       r = h;
-      if (h.lethal) { this.killedByHeadshot = true; this.hp = 0; this.die(); return { killed: true, dealt: h.damage }; }
+      if (h.lethal) { this.killedByHeadshot = true; this.hp = 0; this.killer = killer; this.die(); return { killed: true, dealt: h.damage }; }
     } else {
       const st = this.armorStat;
       const c = computeDamage(base, zone, st && this.armorDur > 0 ? { reduction: st.reduction, dur: this.armorDur } : null);
@@ -293,9 +428,18 @@ export class Enemy {
       r = c;
     }
     this.hp -= r.damage;
-    if (this.hp <= 0) { if (zone === 'head') this.killedByHeadshot = true; this.die(); return { killed: true, dealt: r.damage }; }
+    if (this.hp <= 0) { if (zone === 'head') this.killedByHeadshot = true; this.killer = killer; this.die(); return { killed: true, dealt: r.damage }; }
     this.voice('hurt', 0.5);
-    this.brain.damaged(this.ctx.player.feet);
+    if (attacker) {
+      // 被別的 NPC 打：立刻知道他在哪，並把他當成目標
+      this.tgt = attacker.selfTgt;
+      this.visionT = 0;
+      this.brain.damaged(attacker.pos);
+    } else if (this.hostileToPlayer) {
+      this.tgt = this.playerTgt;
+      this.visionT = 0;
+      this.brain.damaged(this.ctx.player.feet);
+    }
     this.afterSpotted();
     if (r.damage >= 8 && this.hitCd <= 0 && this.anim?.hasHit) {
       this.anim.playOnce('hit');
@@ -323,6 +467,8 @@ export class Enemy {
     this.brain.kill();
     this.anim?.playOnce('death');
     this.speedNow = 0;
+    this.view.alive = false;
+    this.tgt = null;
     this.ctx.onDeath(this);
   }
 
@@ -330,7 +476,7 @@ export class Enemy {
   private afterSpotted(): void {
     if (this.brain.consumeSpotted()) {
       this.voice('alert', 0);
-      if (this.group) this.ctx.alertGroup(this.group, this.ctx.player.feet, this.id);
+      if (this.group && this.tgt) this.ctx.alertGroup(this.group, this.tgt.pt.feet, this.id, this.tgt);
     }
   }
 
@@ -358,26 +504,99 @@ export class Enemy {
     this.tick(d);
   }
 
+  /**
+   * 選擇目標（約每 0.3～0.5 秒掃描一次，不是每個 tick）：
+   *  - 玩家對這個敵人敵對（聲望 < -20 或被挑釁）才會把玩家當目標
+   *  - 視野內、視線沒被擋住的敵對陣營 NPC 也是目標
+   *  - 取最近的；已經在交戰中且目標還活著就不換
+   */
+  private selectTarget(dt: number): Tgt | null {
+    const ctx = this.ctx;
+    const cur = this.tgt;
+    if (cur) {
+      if (!cur.pt.alive || (cur.enemy ? cur.enemy.dead || !this.fx.hostile(this.faction, cur.enemy.faction) : !this.hostileToPlayer)) this.tgt = null;
+    }
+    this.scanT -= dt;
+    if (this.scanT > 0) return this.tgt;
+    this.scanT = SCAN_INTERVAL[0] + this.rng() * (SCAN_INTERVAL[1] - SCAN_INTERVAL[0]);
+    if (this.tgt && this.brain.engaged) return this.tgt;
+
+    const pl = ctx.player;
+    let best: Tgt | null = null;
+    let bd = Infinity;
+    if (pl.alive && this.hostileToPlayer) {
+      best = this.playerTgt;
+      bd = Math.hypot(pl.feet.x - this.pos.x, pl.feet.y - this.pos.y, pl.feet.z - this.pos.z);
+    }
+    // 其他 NPC：先用距離篩（同層、視距內、敵對陣營），再對最近的 3 個做視野與視線檢查
+    const range = this.def.sightRange * 1.1;
+    const buf = this.candBuf;
+    buf.length = 0;
+    for (const o of ctx.all) {
+      if (o === this || o.dead) continue;
+      const d = Math.hypot(o.pos.x - this.pos.x, o.pos.y - this.pos.y, o.pos.z - this.pos.z);
+      if (d > range || d >= bd) continue;
+      if (!this.fx.hostile(this.faction, o.faction)) continue;
+      buf.push({ o, d });
+    }
+    if (buf.length > 0) {
+      if (buf.length > 1) buf.sort((a, b) => a.d - b.d);
+      for (let i = 0; i < buf.length && i < 3; i++) {
+        const { o, d } = buf[i];
+        if (d >= bd) break;
+        if (!(d < 2 || inFieldOfView(this.facing, o.pos.x - this.pos.x, o.pos.z - this.pos.z, this.def.fov))) continue;
+        if (!ctx.mover.los(this.eye, o.eye)) continue;
+        best = o.selfTgt; bd = d;
+        break;
+      }
+    }
+    // 暫時轉頭或被擋住視線不算「忘記」目標：還在 1.3 倍視距內就繼續盯著（由視覺檢查決定看不看得見）
+    if (!best && this.tgt && this.tgt.enemy) {
+      const t = this.tgt.pt.feet;
+      if (Math.hypot(t.x - this.pos.x, t.y - this.pos.y, t.z - this.pos.z) <= range * 1.3) best = this.tgt;
+    }
+    if (best !== this.tgt) {
+      this.tgt = best;
+      this.visionT = 0;
+      this.canSee = false; this.gain = 0; this.hasLos = false;
+    }
+    return this.tgt;
+  }
+
+  /** 把目前姿態寫進被別人感知用的 view */
+  private updateView(): void {
+    const v = this.view;
+    v.eye.set(this.pos.x, this.pos.y + EYE_H * (this.def.height / 1.8), this.pos.z);
+    v.crouching = this.stance !== 'walk';
+    v.sprinting = this.speedNow > this.def.walkSpeed * 1.7;
+    v.moving = this.speedNow > 0.25;
+    v.alive = !this.dead;
+  }
+
   private tick(dt: number): void {
     const { ctx, brain, def } = this;
-    const pl = ctx.player;
     this.hitCd = Math.max(0, this.hitCd - dt);
     this.stun = Math.max(0, this.stun - dt);
     this.shotCd = Math.max(0, this.shotCd - dt);
     this.restT = Math.max(0, this.restT - dt);
     this.coverCd = Math.max(0, this.coverCd - dt);
+    this.warnT = Math.max(0, this.warnT - dt);
     this.lastShotAgo += dt;
 
-    const dx = pl.feet.x - this.pos.x, dz = pl.feet.z - this.pos.z;
-    const dist = Math.hypot(dx, dz, pl.feet.y - this.pos.y);
-    this.distToPlayer = dist;
+    const tg = this.selectTarget(dt);
+    const pl = tg ? tg.pt : null;
+    let dx = 0, dz = 0, dist = 999;
+    if (pl) {
+      dx = pl.feet.x - this.pos.x; dz = pl.feet.z - this.pos.z;
+      dist = Math.hypot(dx, dz, pl.feet.y - this.pos.y);
+    }
 
     // ---- 視覺（約 8Hz 做視線檢查）----
     this.visionT -= dt;
     if (this.visionT <= 0) {
       this.visionT = brain.engaged ? 0.1 : 0.14;
       this.canSee = false; this.gain = 0; this.hasLos = false;
-      if (pl.alive) {
+      if (pl && pl.alive) {
         const range = def.sightRange * (brain.engaged ? 1.6 : 1);
         const light = ctx.lightAt(pl.feet);
         // 手電筒 / 雷射開著：看得更遠、更快發現（暗處效果最大）
@@ -400,18 +619,19 @@ export class Enemy {
       }
     }
 
-    // 看到玩家在治療（25m 內）：趁機衝過來（每次治療只擲一次骰）
-    if (!pl.healing) this.healRolled = false;
-    else if (!this.healRolled && this.canSee && dist <= RUSH_RANGE) {
+    // 看到玩家在治療（25m 內）：趁機衝過來（每次治療只擲一次骰）；只對敵對的玩家
+    const player = ctx.player;
+    if (!player.healing) this.healRolled = false;
+    else if (!this.healRolled && tg && !tg.enemy && this.canSee && dist <= RUSH_RANGE) {
       this.healRolled = true;
       if (shouldRush({ dist, difficulty: this.difficulty, def, rng: this.rng })) {
-        this.startRush(this.tmp2.copy(pl.feet));
+        this.startRush(this.tmp2.copy(player.feet));
         this.lastHear = { kind: 'heal', result: 'rush', t: performance.now(), gain: 1, occluded: false };
       }
     }
 
     brain.update(dt, {
-      canSee: this.canSee, gain: this.gain, targetPos: pl.feet, dist,
+      canSee: this.canSee, gain: this.gain, targetPos: pl ? pl.feet : brain.lastKnown, dist,
       engageRange: def.preferRange[1] + 8, arrived: this.arrived,
     });
     this.afterSpotted();
@@ -424,31 +644,62 @@ export class Enemy {
     }
     this.rushT = Math.max(0, this.rushT - dt);
     this.pushT = Math.max(0, this.pushT - dt);
+    this.updateWatching(dt);
 
     // ---- 行為 ----
     this.arrived = false;
     this.stance = 'walk';
     let move = 0;
-    if (this.flank && brain.engaged) move = this.doFlank(dt, dist);
+    if (this.flank && brain.engaged && tg) move = this.doFlank(dt, dist, tg);
     else {
       if (this.flank) this.flank = null;
       switch (brain.state) {
         case 'patrol': move = this.doPatrol(dt); break;
         case 'alert': move = this.doAlert(dt); break;
         case 'chase': move = this.doChase(dt); break;
-        case 'attack': move = this.doAttack(dt, dist); break;
+        case 'attack': move = tg ? this.doAttack(dt, dist, tg) : this.doChase(dt); break;
         case 'search': move = this.doSearch(dt); break;
       }
     }
     this.speedNow = move / dt;
     this.footsteps(move);
+    this.updateView();
     this.root.position.copy(this.pos);
     this.root.rotation.y = this.facing;
+  }
+
+  /** 中立：玩家在視野內 20m 之內就停下來盯著他看（每 0.3 秒檢查一次，不是每個 tick 射線） */
+  private updateWatching(dt: number): void {
+    this.watchT -= dt;
+    if (this.watchT > 0) return;
+    this.watchT = 0.3;
+    const pl = this.ctx.player;
+    this.watching = false;
+    if (this.brain.state !== 'patrol' || !pl.alive || this.dead) return;
+    if (this.effectiveAttitude !== 'neutral') return;
+    const dx = pl.feet.x - this.pos.x, dz = pl.feet.z - this.pos.z;
+    const d = Math.hypot(dx, dz, pl.feet.y - this.pos.y);
+    if (d > WATCH_RANGE || !(d < 2 || inFieldOfView(this.facing, dx, dz, this.def.fov))) return;
+    this.watching = this.ctx.mover.los(this.eye, pl.eye);
   }
 
   // ---- 行為：巡邏 ----
   private doPatrol(dt: number): number {
     const def = this.def;
+    // 中立：盯著玩家看（停下腳步、轉向他）
+    if (this.watching) {
+      const pf = this.ctx.player.feet;
+      this.turnTo(Math.atan2(pf.x - this.pos.x, pf.z - this.pos.z), dt, 3);
+      return 0;
+    }
+    // 衝突事件：前往某地巡查
+    const m = this.mission;
+    if (m) {
+      m.t += dt;
+      const moved = this.goTo(m.point, def.walkSpeed * 1.15, dt, 4);
+      if (this.arrived || m.t > 120) { this.mission = null; this.waitT = 2 + Math.random() * 2; this.arrived = false; }
+      return moved;
+    }
     if (!this.patrol) {
       // 站崗：偶爾左右張望
       this.lookT -= dt;
@@ -537,9 +788,9 @@ export class Enemy {
   }
 
   // ---- 行為：包抄（沿著另一條路線繞到玩家側面）----
-  private doFlank(dt: number, dist: number): number {
+  private doFlank(dt: number, dist: number, tg: Tgt): number {
     const f = this.flank!;
-    const pl = this.ctx.player;
+    const pl = tg.pt;
     f.t += dt;
     this.brain.hold(); // 繞路時看不到目標不算失去目標
     const seen = this.canSee && this.hasLos;
@@ -553,9 +804,9 @@ export class Enemy {
   }
 
   // ---- 行為：攻擊 ----
-  private doAttack(dt: number, dist: number): number {
-    const { def, ctx } = this;
-    const pl = ctx.player;
+  private doAttack(dt: number, dist: number, tg: Tgt): number {
+    const { def } = this;
+    const pl = tg.pt;
     const tx = pl.feet.x - this.pos.x, tz = pl.feet.z - this.pos.z;
     const want = Math.atan2(tx, tz);
     let moved = 0;
@@ -574,10 +825,10 @@ export class Enemy {
       this.reloadLeft = this.stats.reloadTime;
       this.reloadStageE = 0;
       this.emitNoise('reload', { stage: 0 });
-      if (def.coverSeeker) this.beginCover();
+      if (def.coverSeeker) this.beginCover(tg);
     }
     // 掩護者血量低時也找掩護
-    if (def.coverSeeker && this.mode === 'fight' && this.hp < def.hp * 0.35 && this.coverCd <= 0) this.beginCover();
+    if (def.coverSeeker && this.mode === 'fight' && this.hp < def.hp * 0.35 && this.coverCd <= 0) this.beginCover(tg);
 
     if (this.mode === 'cover') {
       this.coverT += dt;
@@ -621,7 +872,7 @@ export class Enemy {
     if (this.stun <= 0 && this.reloadLeft <= 0 && this.mag > 0 && this.aimT >= def.aimTime && this.hasLos && facingOk) {
       if (this.burstLeft <= 0 && this.restT <= 0) this.burstLeft = def.burst;
       if (this.burstLeft > 0 && this.shotCd <= 0) {
-        this.shoot(dist);
+        this.shoot(dist, tg);
         this.burstLeft--;
         this.shotCd = Math.max(0.09, 60 / this.stats.fireRate);
         if (this.burstLeft <= 0) this.restT = def.burstRest[0] + Math.random() * (def.burstRest[1] - def.burstRest[0]);
@@ -630,9 +881,9 @@ export class Enemy {
     return moved;
   }
 
-  private beginCover(): void {
+  private beginCover(tg: Tgt): void {
     const { ctx } = this;
-    const pl = ctx.player;
+    const pl = tg.pt;
     this.coverCd = 6;
     let best: THREE.Vector3 | null = null;
     let bd = 1e9;
@@ -656,13 +907,14 @@ export class Enemy {
     );
   }
 
-  private shoot(dist: number): void {
+  private shoot(dist: number, tg: Tgt = this.tgt ?? this.playerTgt): void {
     const { ctx, def, stats } = this;
-    const pl = ctx.player;
+    const pl = tg.pt;
+    const victim = tg.enemy;
     this.mag--;
     this.lastShotAgo = 0;
     const muzzle = this.muzzle(new THREE.Vector3());
-    const aim = new THREE.Vector3(pl.feet.x, pl.feet.y + (pl.crouching ? 0.6 : 1.15), pl.feet.z);
+    const aim = new THREE.Vector3(pl.feet.x, pl.feet.y + (pl.crouching ? 0.6 : 1.15) * (victim ? victim.def.height / 1.8 : 1), pl.feet.z);
     const dir = new THREE.Vector3().subVectors(aim, muzzle).normalize();
     // 同一套 noise 規則：滅音器 / 制退器改變槍聲距離（loudness）
     ctx.bus.emit('noise', {
@@ -685,7 +937,8 @@ export class Enemy {
         headLeft = false;
         const base = stats.damage * def.damageScale * damageFalloff(dist, stats.range);
         ctx.fx.tracer(muzzle, aim, true);
-        ctx.damagePlayer(base, zone, muzzle, def.name, stats.weaponClass);
+        if (victim) victim.takeHit(base, zone, muzzle, stats.weaponClass, this);
+        else ctx.damagePlayer(base, zone, muzzle, this.displayName, stats.weaponClass);
       } else {
         // 打偏：落在玩家附近 0.5～2m 的地方，帶有彈著點與聲音
         const r = 0.5 + Math.random() * 1.6, a = Math.random() * Math.PI * 2;
@@ -693,7 +946,7 @@ export class Enemy {
         const d2 = new THREE.Vector3().subVectors(miss, muzzle).normalize();
         const hit = ctx.trace.cast(muzzle, d2, dist + 25);
         const reach = hit ? hit.distance : dist + 25;
-        this.flyby(muzzle, d2, reach);
+        if (!victim) this.flyby(muzzle, d2, reach);
         if (hit) {
           ctx.fx.impact(hit.point, hit.normal, hit.flesh ? 'flesh' : hit.surface);
           ctx.fx.tracer(muzzle, hit.point, true);
