@@ -141,7 +141,7 @@
 .cell.over { outline: 2px dashed var(--neon); }
 .cell.dragging { opacity: .4; }
 .cell.overflow { border-style: dashed; border-color: #ff7a7a; }
-.equip-row { display: grid; grid-template-columns: repeat(4, var(--cell)); gap: 6px; }
+.equip-row { display: grid; grid-template-columns: repeat(5, var(--cell)); gap: 6px; }
 .eq { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .eq-label { font-size: 10px; opacity: .6; }
 

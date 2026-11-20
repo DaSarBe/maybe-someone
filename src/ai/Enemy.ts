@@ -3,8 +3,9 @@ import type { GameBus } from '../core/EventBus';
 import { computeDamage, damageFalloff, type HitZone } from '../combat/Damage';
 import type { CombatFx } from '../combat/Fx';
 import type { WorldTrace } from '../combat/WorldTrace';
-import { ARMOR_STATS } from '../data/gear';
-import { DIFFICULTY, accuracyAt, pickWeapon, scaledAccuracy, type Difficulty, type EnemyDef } from '../data/enemies';
+import { ARMOR_STATS, HELMET_STATS } from '../data/gear';
+import { enemyHeadshotChance, effectiveHelmetLevel, resolveHeadshot, type WeaponClass } from '../data/helmet';
+import { DIFFICULTY, accuracyAt, pickWeapon, rollEnemyHelmet, scaledAccuracy, type Difficulty, type EnemyDef } from '../data/enemies';
 import type { NoiseEvent, NoiseKind } from '../data/noise';
 import { assessHearing } from '../audio/Hearing';
 import { WEAPON_STATS } from '../data/weapons';
@@ -42,7 +43,7 @@ export interface EnemyContext {
   player: PlayerTarget;
   /** 位置的亮度 0..1（暗處發現得慢） */
   lightAt(p: THREE.Vector3): number;
-  damagePlayer(base: number, zone: HitZone, from: THREE.Vector3, killer: string): void;
+  damagePlayer(base: number, zone: HitZone, from: THREE.Vector3, killer: string, weaponClass: WeaponClass): void;
   alertGroup(group: string, pos: THREE.Vector3, exceptId: string): void;
   onDeath(e: Enemy): void;
   castShadow: boolean;
@@ -82,6 +83,11 @@ export class Enemy {
   facing = 0;
   hp: number;
   armorDur: number;
+  /** 頭盔（沒戴為 null）與剩餘耐久；耐久歸零等於沒戴 */
+  helmetId: string | null = null;
+  helmetDur = 0;
+  /** 是不是被爆頭打死的 */
+  killedByHeadshot = false;
   mag: number;
   reserve: number;
   mode: Mode = 'fight';
@@ -106,6 +112,8 @@ export class Enemy {
   tickCount = 0;
   private acc = Math.random() * 0.03;
   private anim: EnemyAnim | null = null;
+  private helmetObj: THREE.Object3D | null = null;
+  private pingAt = -9;
   private animAcc = 0;
 
   // 感知快取
@@ -159,6 +167,8 @@ export class Enemy {
     this.stats = WEAPON_STATS[this.weaponId];
     this.hp = def.hp;
     this.armorDur = def.armorId ? ARMOR_STATS[def.armorId].durability : 0;
+    const hm = rollEnemyHelmet(def, (id) => HELMET_STATS[id]?.durability ?? 0, this.rng);
+    if (hm) { this.helmetId = hm.id; this.helmetDur = hm.dur; }
     this.mag = this.stats.magazine;
     this.reserve = def.ammoCarry[0] + Math.floor(Math.random() * (def.ammoCarry[1] - def.ammoCarry[0] + 1));
     this.patrol = spawn.patrol && spawn.patrol.length >= 2 ? spawn.patrol.map((p) => p.clone()) : null;
@@ -173,8 +183,10 @@ export class Enemy {
 
   /** 載入模型（非同步）；完成前敵人用不可見的狀態運作，不影響邏輯 */
   async load(): Promise<void> {
-    const inst = await createEnemyModel(this.def, this.weaponId, this.ctx.castShadow);
+    const inst = await createEnemyModel(this.def, this.weaponId, this.ctx.castShadow, this.helmetId ? HELMET_STATS[this.helmetId].level : 0);
     this.root.add(inst.root);
+    this.helmetObj = inst.helmet;
+    if (inst.helmet) inst.helmet.visible = this.helmetDur > 0;
     this.anim = inst.anim;
     this.anim?.play('idle', 0);
     if (this.dead) this.anim?.playOnce('death');
@@ -183,6 +195,12 @@ export class Enemy {
 
   get state(): AiState { return this.brain.state; }
   get eye(): THREE.Vector3 { return this.eyeVec.set(this.pos.x, this.pos.y + EYE_H * (this.def.height / 1.8), this.pos.z); }
+
+  /** 生效的頭盔等級（0 = 沒戴 / 耐久歸零；低耐久降一級） */
+  get helmetLevel(): number {
+    const st = this.helmetId ? HELMET_STATS[this.helmetId] : null;
+    return st ? effectiveHelmetLevel({ level: st.level, dur: this.helmetDur, max: st.durability }) : 0;
+  }
 
   get armorStat() { return this.def.armorId ? ARMOR_STATS[this.def.armorId] : null; }
 
@@ -242,13 +260,28 @@ export class Enemy {
   }
 
   /** 玩家子彈命中。base 為武器基礎傷害（已含距離衰減） */
-  takeHit(base: number, zone: HitZone, from: THREE.Vector3): { killed: boolean; dealt: number } {
+  takeHit(base: number, zone: HitZone, from: THREE.Vector3, weaponClass: WeaponClass = 'light'): { killed: boolean; dealt: number } {
     if (this.dead) return { killed: false, dealt: 0 };
-    const st = this.armorStat;
-    const r = computeDamage(base, zone, st && this.armorDur > 0 ? { reduction: st.reduction, dur: this.armorDur } : null);
-    this.armorDur = r.durAfter;
+    let r: { damage: number };
+    if (zone === 'head') {
+      // 爆頭：沒頭盔 = 一槍死；有頭盔依武器類別 × 等級查表（data/helmet.ts），傷害不看武器數值
+      const hs = this.helmetId ? HELMET_STATS[this.helmetId] : null;
+      const h = resolveHeadshot(weaponClass, hs ? { level: hs.level, dur: this.helmetDur, max: hs.durability } : null, this.def.hp, this.rng);
+      if (hs) {
+        this.helmetDur = h.durAfter;
+        if (this.helmetObj && this.helmetDur <= 0) this.helmetObj.visible = false;
+      }
+      if (h.helmetHit) this.helmetPing();
+      r = h;
+      if (h.lethal) { this.killedByHeadshot = true; this.hp = 0; this.die(); return { killed: true, dealt: h.damage }; }
+    } else {
+      const st = this.armorStat;
+      const c = computeDamage(base, zone, st && this.armorDur > 0 ? { reduction: st.reduction, dur: this.armorDur } : null);
+      this.armorDur = c.durAfter;
+      r = c;
+    }
     this.hp -= r.damage;
-    if (this.hp <= 0) { this.die(); return { killed: true, dealt: r.damage }; }
+    if (this.hp <= 0) { if (zone === 'head') this.killedByHeadshot = true; this.die(); return { killed: true, dealt: r.damage }; }
     this.voice('hurt', 0.5);
     this.brain.damaged(this.ctx.player.feet);
     this.afterSpotted();
@@ -259,6 +292,15 @@ export class Enemy {
     } else this.stun = Math.max(this.stun, 0.12);
     void from;
     return { killed: false, dealt: r.damage };
+  }
+
+  /** 頭盔被打中：金屬「叮」（noise 15m，聲源在頭部；NPC 發出的不會被其他 NPC 聽到）。多顆彈丸只響一次 */
+  private helmetPing(): void {
+    this.ctx.bus.emit('helmetHit', { target: 'enemy', level: this.helmetLevel });
+    const now = performance.now() / 1000;
+    if (now - this.pingAt < 0.08) return;
+    this.pingAt = now;
+    this.ctx.bus.emit('noise', { kind: 'helmet_ping', position: { x: this.pos.x, y: this.pos.y + this.def.height * 0.9, z: this.pos.z }, source: this.id, surface: this.ctx.surfaceAt(this.pos) });
   }
 
   die(): void {
@@ -618,12 +660,15 @@ export class Enemy {
     if (pl.crouching) p *= 0.85;
     if (this.speedNow > 1) p *= 0.85;
     let missEmitted = false;
+    // 爆頭每一發只擲一次骰（霰彈槍最多一顆彈丸打中頭）：機率 = 難度 × 距離 × 敵人種類（data/helmet.ts）
+    let headLeft = this.rng() < enemyHeadshotChance(this.difficulty, dist, def.headCoef);
     for (let i = 0; i < stats.pellets; i++) {
       if (Math.random() < p) {
-        const zone: HitZone = Math.random() < def.headChance ? 'head' : 'body';
+        const zone: HitZone = headLeft ? 'head' : 'body';
+        headLeft = false;
         const base = stats.damage * def.damageScale * damageFalloff(dist, stats.range);
         ctx.fx.tracer(muzzle, aim, true);
-        ctx.damagePlayer(base, zone, muzzle, def.name);
+        ctx.damagePlayer(base, zone, muzzle, def.name, stats.weaponClass);
       } else {
         // 打偏：落在玩家附近 0.5～2m 的地方，帶有彈著點與聲音
         const r = 0.5 + Math.random() * 1.6, a = Math.random() * Math.PI * 2;

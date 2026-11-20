@@ -17,7 +17,7 @@ export type NoiseKind =
   | 'footstep_sprint' | 'footstep_walk' | 'footstep_crouch' | 'footstep_crouch_run'
   | 'land' | 'shot' | 'reload' | 'weapon_swap' | 'dry_fire' | 'pump'
   | 'heal' | 'search' | 'item_pickup' | 'item_drop' | 'armor_equip' | 'trade' | 'evac'
-  | 'hurt' | 'death' | 'alert';
+  | 'hurt' | 'death' | 'alert' | 'helmet_ping';
 
 export interface NoiseEvent {
   kind: NoiseKind;
@@ -61,6 +61,7 @@ export const NOISE_RANGE: Record<NoiseKind, number> = {
   evac: 40,
   hurt: 20,
   death: 20,
+  helmet_ping: 15,          // 子彈打在頭盔上的金屬「叮」（表外補充）
   alert: 20,                // 敵人發現玩家的喊叫（表外補充：和悶哼同級）
 };
 

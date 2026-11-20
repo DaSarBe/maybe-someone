@@ -3,7 +3,7 @@
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 
 export type Category =
-  | 'weapon' | 'ammo' | 'armor' | 'backpack' | 'medical'
+  | 'weapon' | 'ammo' | 'armor' | 'helmet' | 'backpack' | 'medical'
   | 'chronite' | 'antique' | 'future_goods' | 'valuable' | 'junk' | 'currency';
 
 export interface ItemDef {
@@ -41,6 +41,8 @@ export interface WeaponStats {
   reloadTime: number;
   /** 有效射程（公尺） */
   range: number;
+  /** 武器類別：light（手槍、衝鋒槍）/ heavy（步槍、霰彈槍）。決定頭盔能不能擋下爆頭，見 data/helmet.ts */
+  weaponClass: 'light' | 'heavy';
 }
 
 export interface ArmorStats {
@@ -48,6 +50,12 @@ export interface ArmorStats {
   durability: number;
   /** 傷害減免比例 */
   reduction: number;
+}
+
+export interface HelmetStats {
+  level: 1 | 2 | 3 | 4;
+  /** 耐久上限（被命中會消耗，見 data/helmet.ts） */
+  durability: number;
 }
 
 export interface BackpackStats {

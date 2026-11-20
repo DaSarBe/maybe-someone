@@ -2,10 +2,10 @@ import type { ItemDef, WeaponStats } from './types';
 
 /** 武器數值。M3 只當物品與商品，M4 才接上戰鬥。 */
 export const WEAPON_STATS: Record<string, WeaponStats> = {
-  pistol: { slot: 'secondary', damage: 24, pellets: 1, fireRate: 400, magazine: 12, ammoType: 'ammo_pistol', recoil: 0.18, reloadTime: 1.6, range: 45 },
-  smg: { slot: 'primary', damage: 20, pellets: 1, fireRate: 850, magazine: 30, ammoType: 'ammo_pistol', recoil: 0.3, reloadTime: 2.0, range: 40 },
-  rifle: { slot: 'primary', damage: 36, pellets: 1, fireRate: 650, magazine: 30, ammoType: 'ammo_rifle', recoil: 0.42, reloadTime: 2.4, range: 90 },
-  shotgun: { slot: 'primary', damage: 12, pellets: 8, fireRate: 75, magazine: 6, ammoType: 'ammo_shotgun', recoil: 0.7, reloadTime: 3.0, range: 22 },
+  pistol: { slot: 'secondary', damage: 24, pellets: 1, fireRate: 400, magazine: 12, ammoType: 'ammo_pistol', recoil: 0.18, reloadTime: 1.6, range: 45, weaponClass: 'light' },
+  smg: { slot: 'primary', damage: 20, pellets: 1, fireRate: 850, magazine: 30, ammoType: 'ammo_pistol', recoil: 0.3, reloadTime: 2.0, range: 40, weaponClass: 'light' },
+  rifle: { slot: 'primary', damage: 36, pellets: 1, fireRate: 650, magazine: 30, ammoType: 'ammo_rifle', recoil: 0.42, reloadTime: 2.4, range: 90, weaponClass: 'heavy' },
+  shotgun: { slot: 'primary', damage: 12, pellets: 8, fireRate: 75, magazine: 6, ammoType: 'ammo_shotgun', recoil: 0.7, reloadTime: 3.0, range: 22, weaponClass: 'heavy' },
 };
 
 export const WEAPON_ITEMS: ItemDef[] = [

@@ -137,6 +137,7 @@ export class LootPanel implements Panel {
     const r = ui.economy.equipFromContainer(loot, index, { dest });
     if (!r.ok) { ui.toast(r.reason, 'err'); this.render(); return; }
     if (cat === 'armor') ui.equipSound('armor');
+    else if (cat === 'helmet') ui.equipSound('helmet');
     else if (cat === 'weapon') ui.noise('weapon_swap');
     else ui.audio.playUi('select', 0.5);
     const back = r.replaced
@@ -229,6 +230,7 @@ export class LootPanel implements Panel {
   private slotGuess(stack: ItemStack): EquipSlot | null {
     const cat = getItem(stack.id)?.category;
     if (cat === 'armor') return 'armor';
+    if (cat === 'helmet') return 'helmet';
     if (cat === 'backpack') return 'backpack';
     if (cat === 'weapon') return stack.id === 'pistol' ? 'secondary' : 'primary';
     return null;
@@ -251,7 +253,7 @@ export class LootPanel implements Panel {
     scroll.appendChild(itemInfo(ctx, s));
     const actions = el('div', 'actions ld-actions');
     const cat = getItem(s.id)?.category;
-    const equippable = cat === 'weapon' || cat === 'armor' || cat === 'backpack';
+    const equippable = cat === 'weapon' || cat === 'armor' || cat === 'helmet' || cat === 'backpack';
 
     if (equippable) {
       const cmp = this.compareBlock(index, s);

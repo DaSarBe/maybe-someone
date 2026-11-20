@@ -1,4 +1,7 @@
+import { HELMET_VIGNETTE } from '../data/helmet';
 import { el } from './dom';
+
+const ROMAN = ['', 'I', 'II', 'III', 'IV'];
 import type { LayoutManager } from './layout/LayoutManager';
 
 /** 戰鬥 HUD：準心（動態散佈）、命中標記、彈藥 / 生命 / 護甲、受傷暈影與方向指示、治療進度 */
@@ -17,11 +20,16 @@ export class CombatHud {
   private hpText = el('b');
   private armorFill = el('i');
   private armorText = el('span');
+  private helmetFill = el('i');
+  private helmetText = el('span');
+  private flash = el('div', 'cb-flash');
+  private hvig = el('div', 'cb-hvig');
+  private flashT = 0;
   private healBar = el('i');
   private healWrap = el('div', 'cb-heal hidden');
   private hitTimer = 0;
   private vigTimer = 0;
-  private last = { gap: -1, ammo: '', hp: -1, armor: -1 };
+  private last = { gap: -1, ammo: '', hp: -1, armor: -1, helmet: '' };
   /** 「換彈中」樣式掛在哪個元素上（電腦版是整個面板，手機版是彈藥框） */
   private ammoHost: HTMLElement = this.panel;
   private unbinds: (() => void)[] = [];
@@ -38,6 +46,8 @@ export class CombatHud {
     hp.append(this.hpFill, this.hpText);
     const armor = el('div', 'cb-bar cb-armor');
     armor.append(this.armorFill, this.armorText);
+    const helmet = el('div', 'cb-bar cb-helmet');
+    helmet.append(this.helmetFill, this.helmetText);
     this.healWrap.append(el('span', '', '治療中'), (() => { const b = el('div', 'cb-healbar'); b.appendChild(this.healBar); return b; })());
     if (layout) {
       const ammoBox = el('div', 'cb-tbox cb-ammobox');
@@ -47,15 +57,17 @@ export class CombatHud {
       hpBox.append(hp, this.healWrap);
       const armorBox = el('div', 'cb-tbox cb-armorbox');
       armorBox.appendChild(armor);
+      const helmetBox = el('div', 'cb-tbox cb-helmetbox');
+      helmetBox.appendChild(helmet);
       this.ammoHost = ammoBox;
-      this.root.append(this.vig, this.low, this.dirs, this.xh, this.hitm, ammoBox, hpBox, armorBox);
+      this.root.append(this.hvig, this.vig, this.low, this.flash, this.dirs, this.xh, this.hitm, ammoBox, hpBox, armorBox, helmetBox);
       this.unbinds.push(
-        layout.bind('ammo', ammoBox), layout.bind('hp', hpBox), layout.bind('armor', armorBox), layout.bind('hitdir', this.dirs),
+        layout.bind('ammo', ammoBox), layout.bind('hp', hpBox), layout.bind('armor', armorBox), layout.bind('helmet', helmetBox), layout.bind('hitdir', this.dirs),
       );
     } else {
-      this.panel.append(this.wName, this.ammo, reload, hp, armor);
+      this.panel.append(this.wName, this.ammo, reload, hp, armor, helmet);
       if (touch) this.panel.classList.add('touch');
-      this.root.append(this.vig, this.low, this.dirs, this.xh, this.hitm, this.healWrap, this.panel);
+      this.root.append(this.hvig, this.vig, this.low, this.flash, this.dirs, this.xh, this.hitm, this.healWrap, this.panel);
     }
     parent.appendChild(this.root);
   }
@@ -102,6 +114,24 @@ export class CombatHud {
     }
   }
 
+  /** 頭盔耐久列：dur / max 與生效等級（低耐久降級時變橘色）；沒戴頭盔 max = 0。3、4 級頭盔有輕微的視野暗角 */
+  setHelmet(dur: number, max: number, level: number, effLevel: number): void {
+    const d = Math.ceil(dur);
+    const key = `${d}|${max}|${level}|${effLevel}`;
+    if (key === this.last.helmet) return;
+    this.last.helmet = key;
+    this.helmetFill.style.width = max ? `${(dur / max) * 100}%` : '0';
+    this.helmetFill.classList.toggle('worn', max > 0 && effLevel < level);
+    this.helmetText.textContent = max ? `頭盔 ${ROMAN[level] ?? level} ${d}/${max}` : '無頭盔';
+    this.hvig.style.opacity = String(effLevel >= 4 ? HELMET_VIGNETTE[4] : effLevel === 3 ? HELMET_VIGNETTE[3] : 0);
+  }
+
+  /** 頭盔被子彈打中：畫面閃一下白光 */
+  flashHelmet(): void {
+    this.flash.style.opacity = '0.75';
+    this.flashT = 0.35;
+  }
+
   setHeal(progress: number | null): void {
     this.healWrap.classList.toggle('hidden', progress === null);
     if (progress !== null) this.healBar.style.width = `${Math.round(progress * 100)}%`;
@@ -127,6 +157,10 @@ export class CombatHud {
   }
 
   update(dt: number): void {
+    if (this.flashT > 0) {
+      this.flashT -= dt;
+      this.flash.style.opacity = String(Math.max(0, (this.flashT / 0.35) * 0.75));
+    }
     if (this.hitTimer > 0) {
       this.hitTimer -= dt;
       if (this.hitTimer <= 0) this.hitm.classList.remove('show');

@@ -1,4 +1,5 @@
-import { ARMOR_STATS, BACKPACK_STATS } from '../data/gear';
+import { ARMOR_STATS, BACKPACK_STATS, HELMET_STATS } from '../data/gear';
+import { HELMET_TABLE } from '../data/helmet';
 import { getItem } from '../data/items';
 import { WEAPON_STATS } from '../data/weapons';
 import type { ItemStack } from './Inventory';
@@ -40,6 +41,18 @@ export function compareGear(next: ItemStack, old: ItemStack | null): CompareRow[
       row('等級', o?.tier ?? null, n.tier),
       row('耐久', o ? (old!.dur ?? o.durability) : null, next.dur ?? n.durability),
       row('減傷', o ? Math.round(o.reduction * 100) : null, Math.round(n.reduction * 100), (v) => `${v}%`),
+    ];
+  }
+  if (nd.category === 'helmet') {
+    const n = HELMET_STATS[next.id];
+    if (!n) return [];
+    const o = old ? HELMET_STATS[old.id] : undefined;
+    const effLight = (lv: number): number => Math.round(HELMET_TABLE.light[lv as 1 | 2 | 3 | 4].dmg[0] * 100);
+    return [
+      row('等級', o?.level ?? null, n.level),
+      row('耐久', o ? (old!.dur ?? o.durability) : null, next.dur ?? n.durability),
+      row('擋步槍爆頭', o ? Number(o.level >= 3) : null, Number(n.level >= 3), (v) => (v ? '可' : '不可')),
+      row('手槍爆頭受傷', o ? effLight(o.level) : null, effLight(n.level), (v) => `${v}%+`, false),
     ];
   }
   if (nd.category === 'weapon') {

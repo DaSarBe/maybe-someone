@@ -9,6 +9,7 @@ import type { EconomyService } from '../economy/EconomyService';
 import type { EquipSlot } from '../items/Profile';
 import type { PlayerController } from '../player/PlayerController';
 import { damageFalloff, type HitZone } from './Damage';
+import type { WeaponClass } from '../data/helmet';
 import type { CombatFx } from './Fx';
 import type { PlayerHealth } from './PlayerHealth';
 import type { Viewmodel } from './Viewmodel';
@@ -28,7 +29,7 @@ export interface TargetHit {
   point: THREE.Vector3;
   zone: HitZone;
   /** 造成傷害；base 為武器基礎傷害（已含距離衰減），回傳是否擊殺 */
-  damage(base: number, zone: HitZone, from: THREE.Vector3): { killed: boolean };
+  damage(base: number, zone: HitZone, from: THREE.Vector3, weaponClass: WeaponClass): { killed: boolean };
 }
 export interface TargetProvider {
   raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): TargetHit | null;
@@ -333,7 +334,7 @@ export class WeaponSystem {
       const t = targets.raycast(this.origin, this.dir, wd);
       if (t && t.distance <= wd) {
         const base = stats.damage * damageFalloff(t.distance, stats.range);
-        const r = t.damage(base, t.zone, this.origin);
+        const r = t.damage(base, t.zone, this.origin, stats.weaponClass);
         fx.impact(t.point, this.dir.clone().negate(), 'flesh');
         fx.tracer(this.muzzle, t.point);
         if (soundBudget-- > 0) bus.emit('impact', { surface: 'concrete', position: t.point.clone(), flesh: true });

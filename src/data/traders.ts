@@ -59,6 +59,9 @@ export const TRADERS: Record<string, TraderDef> = {
       { id: 'bandage', price: 120, qty: [2, 6], chance: 0.9 },
       { id: 'medkit', price: 600, qty: [1, 2], chance: 0.6 },
       { id: 'painkiller', price: 1000, qty: [1, 1], chance: 0.35 },
+      // 頭盔：進貨價約為未來售價的 75%
+      { id: 'helmet_1', price: 430, qty: [1, 1], chance: 0.35 },
+      { id: 'helmet_2', price: 1300, qty: [1, 1], chance: 0.2 },
       // 雜貨
       { id: 'rice_wine', price: 60, qty: [2, 6], chance: 0.7 },
       { id: 'vhs', price: 90, qty: [1, 4], chance: 0.5 },

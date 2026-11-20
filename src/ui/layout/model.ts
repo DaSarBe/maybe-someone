@@ -20,7 +20,7 @@ export const SLOT_COUNT = 3;
 export type ElementId =
   | 'stick' | 'fireL' | 'fireR' | 'aim' | 'jump' | 'crouch' | 'reload' | 'interact' | 'swap' | 'heal'
   | 'inventory' | 'menu'
-  | 'timer' | 'ammo' | 'hp' | 'armor' | 'credits' | 'prompt' | 'hitdir' | 'noisedir';
+  | 'timer' | 'ammo' | 'hp' | 'armor' | 'helmet' | 'credits' | 'prompt' | 'hitdir' | 'noisedir';
 
 /** px：直接設定寬高；scale：以自然尺寸套用 transform: scale；center：以中心為原點縮放（受擊方向） */
 export type ApplyMode = 'px' | 'scale' | 'center';
@@ -51,7 +51,7 @@ const hud = (id: ElementId, label: string, w: number, nw: number, nh: number, x:
 /**
  * 預設版面（以 iPhone 16 Pro 橫向為基準，並在 6 種常見尺寸驗證過不重疊）。
  * 左側：搖桿（左下）、左射擊鍵（搖桿右上方）；右側：射擊（右下）、跳、蹲、瞄準、互動、換彈、切換、治療；
- * 右上：背包、☰；上方中央：時空穩定度；左上：信用點、血量、護甲；下方中央：彈藥；中央：受擊方向與互動提示。
+ * 右上：背包、☰；上方中央：時空穩定度；左上：信用點、血量、護甲、頭盔；下方中央：彈藥；中央：受擊方向與互動提示。
  */
 export const ELEMENT_DEFS: ElementDef[] = [
   btn('stick', '虛擬搖桿', 0.36, 0.13, 0.74),
@@ -70,6 +70,7 @@ export const ELEMENT_DEFS: ElementDef[] = [
   hud('ammo', '彈藥', 0.4, 170, 64, 0.5, 0.917),
   hud('hp', '血量', 0.4, 150, 36, 0.12, 0.2),
   hud('armor', '護甲', 0.4, 150, 18, 0.12, 0.285),
+  hud('helmet', '頭盔', 0.4, 150, 18, 0.12, 0.345),
   hud('credits', '信用點', 0.3, 112, 34, 0.1, 0.05),
   hud('prompt', '互動提示', 0.62, 250, 76, 0.5, 0.713),
   { id: 'hitdir', label: '受擊方向', group: 'hud', apply: 'center', w: 0.36, aspect: 1, nat: { w: 320, h: 320 }, x: 0.5, y: 0.384 },

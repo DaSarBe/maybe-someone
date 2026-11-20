@@ -341,6 +341,28 @@ const playerArmor: Recipe = {
   },
 };
 
+/** 子彈打在頭盔上：清脆的金屬「叮」（高頻短鈴聲 + 撞擊瞬間的 click），尾巴帶一點彈開的嗡鳴 */
+const helmetPing: Recipe = {
+  duration: 0.75, peak: 0.85, variants: 3,
+  build(b) {
+    b.burst({ type: 'highpass', freq: 4200, peak: 0.7, attack: 0.0003, decay: 0.008 });
+    b.burst({ type: 'bandpass', freq: jit(b, 2600), q: 4, peak: 0.5, attack: 0.0005, decay: 0.03 });
+    const base = jit(b, 1850, 0.04);
+    [1, 2.76, 5.4].forEach((r, i) => b.tone({ freq: base * r, peak: 0.55 / (1 + i * 0.9), attack: 0.0006, decay: 0.45 / (1 + i * 0.8) }));
+    b.tone({ t: 0.012, freq: base * 1.003, freqEnd: base * 0.985, peak: 0.25, attack: 0.002, decay: 0.55 });
+  },
+};
+
+/** 耳鳴：高頻純音緩緩淡出（玩家頭盔挨子彈時） */
+const tinnitus: Recipe = {
+  duration: 1.6, peak: 0.5, variants: 1,
+  build(b) {
+    b.tone({ freq: 5600, peak: 0.5, attack: 0.04, decay: 1.2 });
+    b.tone({ freq: 5750, peak: 0.28, attack: 0.06, decay: 1.0 });
+    b.tone({ freq: 2800, peak: 0.12, attack: 0.05, decay: 0.8 });
+  },
+};
+
 /** 霰彈槍的低頻爆破層（疊在降調的 rifle_fire 上） */
 const shotgunBoom: Recipe = {
   duration: 0.9, peak: 0.95, variants: 3,
@@ -659,6 +681,8 @@ export const RECIPES: Record<string, Recipe> = {
   'weapons.shotgun_boom': shotgunBoom,
   'weapons.shotgun_pump': shotgunPump,
   'impacts.player_armor': playerArmor,
+  'impacts.helmet_ping': helmetPing,
+  'sfx.tinnitus': tinnitus,
   'impacts.concrete': concreteImpact,
   'impacts.metal': metalImpact,
   'impacts.wood': woodImpact,

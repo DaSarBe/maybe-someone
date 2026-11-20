@@ -33,7 +33,7 @@ export class Ui {
   }
 
   dropSound(): void { this.audio.playUi('drop', 0.5); this.noise('item_drop'); }
-  equipSound(slot: string): void { this.audio.playUi('select', 0.5); if (slot === 'armor') this.noise('armor_equip'); }
+  equipSound(slot: string): void { this.audio.playUi('select', 0.5); if (slot === 'armor' || slot === 'helmet') this.noise('armor_equip'); }
 
   /** 關閉面板後的回呼（場景用來重新鎖定滑鼠） */
   onClosed: (() => void) | null = null;

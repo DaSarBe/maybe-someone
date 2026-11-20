@@ -58,6 +58,12 @@
 .cb-armor { height: 11px; line-height: 11px; font-size: 10px; }
 .cb-armor i { background: #38bdf8; }
 .cb-armor span { position: absolute; left: 6px; top: 0; text-shadow: 0 0 3px #000; }
+.cb-helmet { height: 11px; line-height: 11px; font-size: 10px; }
+.cb-helmet i { background: #facc15; }
+.cb-helmet i.worn { background: #fb923c; }
+.cb-helmet span { position: absolute; left: 6px; top: 0; text-shadow: 0 0 3px #000; }
+.cb-flash { position: absolute; inset: 0; opacity: 0; background: #fff; pointer-events: none; }
+.cb-hvig { position: absolute; inset: 0; opacity: 0; pointer-events: none; background: radial-gradient(ellipse at center, rgba(0,0,0,0) 62%, rgba(0,0,0,.85) 100%); }
 .cb-heal { position: absolute; left: 50%; top: 58%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 13px; text-shadow: 0 0 3px #000; color: #b8ffd0; }
 .cb-healbar { width: 130px; height: 6px; background: rgba(255,255,255,.14); border-radius: 3px; overflow: hidden; }
 .cb-healbar i { display: block; height: 100%; width: 0; background: #4ade80; }
@@ -85,6 +91,8 @@
 .cb-hpbox .cb-bar { height: 16px; line-height: 16px; flex: none; }
 .cb-armorbox { justify-content: flex-start; }
 .cb-armorbox .cb-bar { height: 14px; line-height: 14px; }
+.cb-helmetbox { justify-content: flex-start; }
+.cb-helmetbox .cb-bar { height: 14px; line-height: 14px; }
 .cb-heal.in-box { position: static; transform: none; flex-direction: row; align-items: center; gap: 6px; font-size: 10px; width: 100%; }
 .cb-heal.in-box .cb-healbar { flex: 1; width: auto; height: 5px; }
 

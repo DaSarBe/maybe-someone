@@ -37,6 +37,8 @@ import { TraderPanel } from '../ui/panels/TraderPanel';
 import { TransferPanel } from '../ui/panels/TransferPanel';
 import { getTrader } from '../data/traders';
 import { getItem } from '../data/items';
+import { HELMET_STATS } from '../data/gear';
+import { WEAPON_STATS } from '../data/weapons';
 import { setupLighting } from './Lighting';
 import { makeLabel } from './maps/hub';
 import { fitModel, loadModel } from './Models';
@@ -240,11 +242,11 @@ export class RaidScene implements Scene {
     this.trace = new WorldTrace(this.trader ? [...map.surfaceMeshes, this.trader.hitbox] : map.surfaceMeshes);
     this.fx = new CombatFx(this.scene);
     this.health = new PlayerHealth(game.bus, eco, this.player);
-    this.health.onDeath = (killer) => { this.killedBy = killer; this.end('death', killer); };
+    this.health.onDeath = (killer, headshot) => { this.killedBy = killer; this.end('death', killer, headshot); };
     this.enemies = new EnemyManager({
       bus: game.bus, octree, nav: map.nav, fx: this.fx, trace: this.trace, player: this.playerTarget,
       lightAt: (p) => this.lightAt(p),
-      damagePlayer: (base, zone, from, killer) => { this.health.hit(base, zone, from, killer); },
+      damagePlayer: (base, zone, from, killer, weaponClass) => { this.health.hit(base, zone, from, killer, weaponClass); },
       onDeath: (e) => this.spawnCorpse(e),
       surfaceAt: (p) => this.surfaceAt(p),
       castShadow: !touch,
@@ -275,6 +277,7 @@ export class RaidScene implements Scene {
       this.containers.forEach((c) => this.refreshMarker(c));
       this.weapons.refreshFromEquipment();
       this.health.refreshArmor();
+      this.health.refreshHelmet();
       game.input.requestLock();
       window.setTimeout(() => this.menu?.refreshLock(), 160);
     };
@@ -283,6 +286,7 @@ export class RaidScene implements Scene {
     this.unsubs.push(
       game.bus.on('playerHurt', (e) => this.onHurt(e.amount, e.from)),
       game.bus.on('enemyHit', (e) => this.chud.showHit(e.zone, e.killed)),
+      game.bus.on('helmetHit', (e) => { if (e.target === 'player') this.chud.flashHelmet(); }),
     );
 
     game.audio.setZones(map.reverbZones);
@@ -440,6 +444,7 @@ export class RaidScene implements Scene {
     if (!table) return;
     const loot: Slot[] = buildCorpseLoot({
       def: e.def, weaponId: e.weaponId, mag: e.mag, reserve: e.reserve, ammoType: e.stats.ammoType, armorDur: e.armorDur,
+      helmet: e.helmetId ? { id: e.helmetId, dur: e.helmetDur } : null,
     }, this.era);
     const group = new THREE.Group();
     group.position.copy(e.pos);
@@ -474,8 +479,20 @@ export class RaidScene implements Scene {
   /** 測試掛鉤 */
   debugAdvance(sec: number): void { this.timeOffset += sec * 1000; }
   debugKill(): void { this.end('death'); }
+  /** 測試掛鉤：強制讓玩家挨一發爆頭（weaponId 決定武器類別） */
+  debugHeadshot(weaponId: string, killer = '測試敵人'): number {
+    const st = WEAPON_STATS[weaponId];
+    return this.health.hit(st.damage, 'head', undefined, killer, st.weaponClass);
+  }
+  /** 測試掛鉤：在玩家前方 dist 公尺生成敵人（面向玩家）；helmet 見 EnemyManager.debugSpawn */
+  debugSpawnEnemy(kind: 'guard' | 'thug' | 'rival_agent', dist: number, helmet?: { id: string; dur: number } | null): Promise<Enemy> {
+    const p = this.player.position;
+    const yaw = this.player.facingYaw;
+    const pos = new THREE.Vector3(p.x - Math.sin(yaw) * dist, p.y, p.z - Math.cos(yaw) * dist);
+    return this.enemies.debugSpawn(kind, pos, this.scene, helmet);
+  }
 
-  end(outcome: 'extract' | 'death', killedBy?: string): void {
+  end(outcome: 'extract' | 'death', killedBy?: string, headshot = false): void {
     if (this.ended || !this.ready) return;
     this.weapons.flush();
     this.health.flush();
@@ -494,7 +511,7 @@ export class RaidScene implements Scene {
       this.game.economy.acknowledgeResult();
       this.ui.close(true, true);
       this.game.setScene(this.game.scenes.hub());
-    }, { killedBy }));
+    }, { killedBy, headshot }));
     this.game.audio.playUi(outcome === 'extract' ? 'confirm' : 'error');
   }
 
@@ -764,6 +781,8 @@ export class RaidScene implements Scene {
       const wh = this.weapons.hud();
       this.chud.setWeapon(wh.name, wh.mag, wh.magMax, wh.reserve, wh.reloading, wh.reloadProgress, wh.slotLabel);
       this.chud.setHealth(this.health.hp, this.health.max, this.health.armorDur, this.health.armorMax);
+      const hid = this.health.helmetId;
+      this.chud.setHelmet(this.health.helmetDur, this.health.helmetMax, hid ? HELMET_STATS[hid].level : 0, this.health.helmetEffLevel);
       this.chud.setCrosshair(Math.max(3, this.weapons.crosshairGapPx(game.height)) + 2, this.onTarget, !!this.weapons.current && !this.ui.isOpen);
       this.chud.setHeal(this.health.healing ? this.health.healProgress : null);
       this.chud.update(frameDt);

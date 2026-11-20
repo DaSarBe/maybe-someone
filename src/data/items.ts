@@ -67,7 +67,7 @@ export const ITEM_LIST: ItemDef[] = [...WEAPON_ITEMS, ...GEAR_ITEMS, ...BASE_ITE
 export const ITEMS: Readonly<Record<string, ItemDef>> = Object.fromEntries(ITEM_LIST.map((d) => [d.id, d]));
 
 export const CATEGORY_NAMES: Record<ItemDef['category'], string> = {
-  weapon: '武器', ammo: '彈藥', armor: '護甲', backpack: '背包', medical: '醫療',
+  weapon: '武器', ammo: '彈藥', armor: '護甲', helmet: '頭盔', backpack: '背包', medical: '醫療',
   chronite: '時晶', antique: '古董', future_goods: '未來商品', valuable: '貴重品', junk: '雜物', currency: '貨幣',
 };
 
@@ -80,7 +80,7 @@ export const RARITY_COLORS: Record<ItemDef['rarity'], string> = {
 };
 
 /** 黑市終端機會販售的分類 */
-export const SHOP_CATEGORIES: ItemDef['category'][] = ['weapon', 'ammo', 'armor', 'backpack', 'medical', 'future_goods'];
+export const SHOP_CATEGORIES: ItemDef['category'][] = ['weapon', 'ammo', 'armor', 'helmet', 'backpack', 'medical', 'future_goods'];
 
 export function getItem(id: string): ItemDef | undefined {
   return ITEMS[id];

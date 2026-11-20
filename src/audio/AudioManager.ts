@@ -205,7 +205,8 @@ export class AudioManager implements SoundPlayer {
     bus.on('noise', (e) => this.onNoise(e));
     bus.on('impact', (e) => this.surfaceSounds.impact(e.surface, e.position, e.flesh));
     bus.on('bulletFlyby', (e) => this.playFlyby(e.position, e.distance));
-    bus.on('playerHurt', (e) => this.play({ key: e.armor ? 'impacts.player_armor' : 'impacts.player_flesh', volume: e.armor ? 0.95 : 0.9, rate: jitter(0.06), tag: e.armor ? 'player hit armor' : 'player hit flesh' }));
+    bus.on('helmetHit', (e) => { if (e.target === 'player') this.play({ key: 'sfx.tinnitus', volume: 0.5, delay: 0.05, tag: 'tinnitus' }); });
+    bus.on('playerHurt', (e) => e.helmet ? undefined : this.play({ key: e.armor ? 'impacts.player_armor' : 'impacts.player_flesh', volume: e.armor ? 0.95 : 0.9, rate: jitter(0.06), tag: e.armor ? 'player hit armor' : 'player hit flesh' }));
     bus.on('enemyHit', (e) => this.playHitMarker(e.zone, e.killed));
     bus.on('heal', (e) => this.playHeal(e.phase));
     bus.on('reverbZoneChanged', (e) => this.setListenerZone(e.type));
@@ -607,6 +608,9 @@ export class AudioManager implements SoundPlayer {
         return;
       case 'armor_equip':
         this.play({ ...sp, key: 'sfx.armor_equip', volume: 0.7 * jitter(0.05), rate: jitter(0.03), wet: 0.4, tag: tag('armor equip') });
+        return;
+      case 'helmet_ping':
+        this.play({ ...sp, key: 'impacts.helmet_ping', volume: 0.95 * jitter(0.05), rate: jitter(0.04), wet: 0.45, tag: tag('helmet ping') });
         return;
       case 'trade':
         this.play({ ...sp, key: 'sfx.trade_cash', volume: 0.6 * jitter(0.05), rate: jitter(0.03), wet: 0.3, tag: tag('trade') });

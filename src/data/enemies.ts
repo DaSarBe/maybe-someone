@@ -33,8 +33,10 @@ export interface EnemyDef {
   coverSeeker: boolean;
   /** 聽力倍率 */
   hearing: number;
-  /** 爆頭機率（敵人子彈打中玩家時，打中頭的比例；頭部無視護甲） */
-  headChance: number;
+  /** 爆頭機率的種類係數（乘上難度基礎與距離係數，見 data/helmet.ts enemyHeadshotChance） */
+  headCoef: number;
+  /** 頭盔：等級、配戴機率、耐久比例範圍（佔上限）；沒有則不戴 */
+  helmet?: { id: string; chance: number; durRange: [number, number]; drop: number };
   model: 'enemy_soldier' | 'enemy_robot_gunner';
   /** 模型高度（公尺）與顏色倍率（區分 guard 與 thug） */
   height: number;
@@ -55,31 +57,33 @@ export const ENEMIES: Record<EnemyKind, EnemyDef> = {
     reaction: 1.0, aimTime: 0.8,
     accuracy: [[0, 0.55], [10, 0.4], [25, 0.2], [45, 0.07]],
     burst: 1, burstRest: [0.7, 1.3], damageScale: 0.8,
-    preferRange: [8, 20], rush: false, coverSeeker: false, hearing: 0.8, headChance: 0.05,
+    preferRange: [8, 20], rush: false, coverSeeker: false, hearing: 0.8, headCoef: 0.8,
     model: 'enemy_soldier', height: 1.8, tint: [0.7, 0.85, 1.2],
     tactics: { sneak: 0.5, rush: 0.6, flank: 0.5 },
     extraLoot: [['bandage', 0.3, [1, 1]], ['pager', 0.25, [1, 1]]], armorDrop: 0,
   },
   thug: {
     kind: 'thug', name: '黑道打手', hp: 85, armorId: 'armor_1',
+    helmet: { id: 'helmet_1', chance: 0.4, durRange: [0.7, 1], drop: 0.8 },
     weapons: [{ id: 'smg', weight: 3 }, { id: 'shotgun', weight: 2 }], ammoCarry: [24, 60],
     walkSpeed: 1.5, runSpeed: 4.8, fov: 110, sightRange: 30,
     reaction: 0.6, aimTime: 0.45,
     accuracy: [[0, 0.5], [8, 0.38], [20, 0.2], [40, 0.07]],
     burst: 4, burstRest: [0.5, 1.0], damageScale: 0.7,
-    preferRange: [4, 12], rush: true, coverSeeker: false, hearing: 1.0, headChance: 0.07,
+    preferRange: [4, 12], rush: true, coverSeeker: false, hearing: 1.0, headCoef: 0.8,
     model: 'enemy_soldier', height: 1.8, tint: [1.25, 0.55, 0.5],
     tactics: { sneak: 0.3, rush: 1.3, flank: 0.8 }, // 莽撞：很少偷襲，愛趁你換彈衝過來
     extraLoot: [['ammo_pistol', 0.4, [10, 24]], ['brick_phone', 0.15, [1, 1]], ['chronite_shard', 0.1, [1, 1]]], armorDrop: 0.6,
   },
   rival_agent: {
     kind: 'rival_agent', name: '敵對企業穿越者', hp: 110, armorId: 'armor_3',
+    helmet: { id: 'helmet_3', chance: 1, durRange: [0.6, 1], drop: 1 },
     weapons: [{ id: 'rifle', weight: 1 }], ammoCarry: [30, 70],
     walkSpeed: 1.6, runSpeed: 4.3, fov: 120, sightRange: 42,
     reaction: 0.35, aimTime: 0.3,
     accuracy: [[0, 0.7], [12, 0.55], [30, 0.35], [60, 0.15]],
     burst: 3, burstRest: [0.35, 0.8], damageScale: 0.7,
-    preferRange: [12, 28], rush: false, coverSeeker: true, hearing: 1.3, headChance: 0.1,
+    preferRange: [12, 28], rush: false, coverSeeker: true, hearing: 1.3, headCoef: 1.3,
     model: 'enemy_robot_gunner', height: 1.9,
     tactics: { sneak: 1.4, rush: 1.0, flank: 1.4 }, // 訓練有素：最常蹲走偷襲與包抄
     extraLoot: [['chronite_shard', 0.7, [1, 3]], ['chronite', 0.3, [1, 1]], ['quantum_chip', 0.12, [1, 1]], ['medkit', 0.4, [1, 1]], ['ammo_rifle', 0.5, [10, 30]]], armorDrop: 1,
@@ -139,4 +143,12 @@ export function scaledAccuracy(base: number, d: Difficulty): number {
 /** 戰術行為機率 = 難度基礎 × 敵人傾向 */
 export function tacticChance(kind: 'sneak' | 'rush' | 'flank', d: Difficulty, def: Pick<EnemyDef, 'tactics'>): number {
   return Math.min(MAX_TACTIC_CHANCE, DIFFICULTY[d][kind] * def.tactics[kind]);
+}
+
+/** 擲出這個敵人的頭盔：回傳 { id, dur } 或 null（沒戴）。dur 為絕對耐久值 */
+export function rollEnemyHelmet(def: EnemyDef, durMax: (id: string) => number, rng: () => number = Math.random): { id: string; dur: number } | null {
+  const h = def.helmet;
+  if (!h || rng() >= h.chance) return null;
+  const [lo, hi] = h.durRange;
+  return { id: h.id, dur: Math.max(1, Math.round(durMax(h.id) * (lo + (hi - lo) * rng()))) };
 }

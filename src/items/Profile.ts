@@ -1,15 +1,15 @@
 import { DEFAULT_ERA } from '../data/eras';
 import { STARTING_CREDITS, getItem } from '../data/items';
-import { ARMOR_STATS, BACKPACK_STATS, POCKETS } from '../data/gear';
+import { ARMOR_STATS, BACKPACK_STATS, HELMET_STATS, POCKETS } from '../data/gear';
 import { WEAPON_STATS } from '../data/weapons';
 import { UPGRADES, type UpgradeId } from '../data/upgrades';
 import { stackWeight, type ItemStack, type Slot } from './Inventory';
 
-export const PROFILE_VERSION = 1;
+export const PROFILE_VERSION = 2;
 export const PROFILE_KEY = 'profile';
 
-export type EquipSlot = 'primary' | 'secondary' | 'armor' | 'backpack';
-export const EQUIP_SLOTS: EquipSlot[] = ['primary', 'secondary', 'armor', 'backpack'];
+export type EquipSlot = 'primary' | 'secondary' | 'armor' | 'helmet' | 'backpack';
+export const EQUIP_SLOTS: EquipSlot[] = ['primary', 'secondary', 'armor', 'helmet', 'backpack'];
 
 export interface RaidResult {
   outcome: 'extract' | 'death';
@@ -67,6 +67,7 @@ export function createDefaultProfile(): Profile {
       primary: null,
       secondary: { id: 'pistol', qty: 1 },
       armor: null,
+      helmet: null,
       backpack: { id: 'bag_small', qty: 1 },
     },
     carried: [],
@@ -116,11 +117,16 @@ export function armorMaxDurability(id: string): number {
 }
 
 /**
- * 物品的「狀態值」上限：護甲 = 耐久，武器 = 彈匣容量。存在 ItemStack.dur。
+export function helmetMaxDurability(id: string): number {
+  return HELMET_STATS[id]?.durability ?? 0;
+}
+
+/**
+ * 物品的「狀態值」上限：護甲 / 頭盔 = 耐久，武器 = 彈匣容量。存在 ItemStack.dur。
  * 省略 dur 代表全新 / 彈匣是滿的。
  */
 export function itemMaxDur(id: string): number {
-  return ARMOR_STATS[id]?.durability ?? WEAPON_STATS[id]?.magazine ?? 0;
+  return ARMOR_STATS[id]?.durability ?? HELMET_STATS[id]?.durability ?? WEAPON_STATS[id]?.magazine ?? 0;
 }
 
 // ---------------------------------------------------------------- 存檔清理與升級
@@ -133,7 +139,7 @@ function cleanStack(raw: unknown): ItemStack | null {
   const q = Number(r.qty ?? r.count ?? 1);
   if (!Number.isFinite(q) || q < 1) return null;
   const s: ItemStack = { id: r.id, qty: Math.min(def.maxStack, Math.floor(q)) };
-  if (typeof r.dur === 'number' && (def.category === 'armor' || def.category === 'weapon')) s.dur = Math.max(0, Math.min(itemMaxDur(r.id), Math.floor(r.dur)));
+  if (typeof r.dur === 'number' && (def.category === 'armor' || def.category === 'helmet' || def.category === 'weapon')) s.dur = Math.max(0, Math.min(itemMaxDur(r.id), Math.floor(r.dur)));
   return s;
 }
 
@@ -158,7 +164,7 @@ export function fitProfile(p: Profile): Profile {
   for (const s of EQUIP_SLOTS) {
     const e = cleanStack(p.equipment?.[s]);
     const def = e ? getItem(e.id) : undefined;
-    const okCat = s === 'armor' ? 'armor' : s === 'backpack' ? 'backpack' : 'weapon';
+    const okCat = s === 'armor' ? 'armor' : s === 'helmet' ? 'helmet' : s === 'backpack' ? 'backpack' : 'weapon';
     p.equipment[s] = e && def?.category === okCat ? e : null;
   }
   p.stash = cleanSlots(p.stash, stashCapacity(p));
@@ -185,6 +191,14 @@ const MIGRATIONS: Migration[] = [
     if ('money' in out) { out.credits = out.money; delete out.money; }
     if (Array.isArray(out.stash)) out.stash = (out.stash as unknown[]).map((s) => cleanStack(s));
     out.version = 1;
+    return out;
+  },
+  // v1 → v2：新增頭盔裝備欄（舊存檔沒有 helmet 欄位，補上空欄位）
+  (raw) => {
+    const out: Record<string, unknown> = { ...raw };
+    const eq = (out.equipment && typeof out.equipment === 'object' ? out.equipment : {}) as Record<string, unknown>;
+    out.equipment = { ...eq, helmet: eq.helmet ?? null };
+    out.version = 2;
     return out;
   },
 ];

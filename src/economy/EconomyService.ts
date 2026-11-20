@@ -1,5 +1,5 @@
 import { TEST_MAP_DURATION, getEra } from '../data/eras';
-import { ARMOR_STATS } from '../data/gear';
+import { ARMOR_STATS, HELMET_STATS } from '../data/gear';
 import { SHOP_CATEGORIES, getItem } from '../data/items';
 import { getUpgrade, type UpgradeId } from '../data/upgrades';
 import { WEAPON_STATS } from '../data/weapons';
@@ -53,10 +53,15 @@ function equipSlotFor(def: ItemDef, requested?: EquipSlot): EquipSlot | null {
   let slot: EquipSlot | null = null;
   if (def.category === 'weapon') slot = WEAPON_STATS[def.id]?.slot ?? null;
   else if (def.category === 'armor') slot = ARMOR_STATS[def.id] ? 'armor' : null;
+  else if (def.category === 'helmet') slot = HELMET_STATS[def.id] ? 'helmet' : null;
   else if (def.category === 'backpack') slot = 'backpack';
   if (slot && requested && requested !== slot) return null;
   return slot;
 }
+
+/** 新買的護甲 / 頭盔帶滿耐久（其他物品沒有狀態值） */
+const freshDur = (def: ItemDef): number | undefined =>
+  def.category === 'armor' ? ARMOR_STATS[def.id]?.durability : def.category === 'helmet' ? HELMET_STATS[def.id]?.durability : undefined;
 
 const cloneStack = (s: ItemStack, qty = s.qty): ItemStack => (s.dur === undefined ? { id: s.id, qty } : { id: s.id, qty, dur: s.dur });
 
@@ -186,7 +191,7 @@ export class EconomyService {
       const cost = buyPrice(itemId, dateKey(this.now())) * qty;
       if (cost > p.credits) return fail('no_credits');
       const stash = this.inv(p, 'stash');
-      const dur = def.category === 'armor' ? ARMOR_STATS[itemId]?.durability : undefined;
+      const dur = freshDur(def);
       if (stash.add(itemId, qty, dur) > 0) return fail('full', '倉庫已滿');
       p.credits -= cost;
       return { ok: true, cost };
@@ -550,7 +555,7 @@ export class EconomyService {
       const carried = this.inv(p, 'carried');
       if (carried.count(def.currency) < cost) return fail('no_currency');
       carried.remove(def.currency, cost);
-      const dur = getItem(itemId)!.category === 'armor' ? ARMOR_STATS[itemId]?.durability : undefined;
+      const dur = freshDur(getItem(itemId)!);
       if (carried.add(itemId, qty, dur) > 0) return fail(this.whyFull(carried, itemId), this.whyFull(carried, itemId) === 'full' ? '背包已滿' : undefined);
       raid.trade.bought[itemId] = (raid.trade.bought[itemId] ?? 0) + qty;
       return { ok: true, cost };

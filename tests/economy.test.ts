@@ -251,7 +251,7 @@ describe('EconomyService: raid flow', () => {
     expect(eco.view('stash').count('ammo_pistol')).toBe(60);
     expect(eco.view('stash').count('medkit')).toBe(0);
     expect(eco.view('stash').count('gold_bar')).toBe(0);
-    expect(eco.profile.equipment).toEqual({ primary: null, secondary: null, armor: null, backpack: null });
+    expect(eco.profile.equipment).toEqual({ primary: null, secondary: null, armor: null, helmet: null, backpack: null });
     expect(eco.view('carried').capacity).toBe(4); // pockets only
     expect(eco.profile.stats).toMatchObject({ raids: 1, deaths: 1 });
     expect(r.result.value).toBeGreaterThan(0);

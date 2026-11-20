@@ -105,8 +105,90 @@ export class EnemyAnim {
   }
 }
 
+/** 各等級頭盔的外觀（顏色與細節）：1 黃色安全帽、2 橄欖綠戰術盔、3 藍灰陶瓷盔、4 深紫全罩盔（帶青色面罩） */
+const HELMET_LOOK: Record<number, { color: string; metal: number; brim: boolean; visor: boolean; r: number }> = {
+  1: { color: '#e0b323', metal: 0.1, brim: true, visor: false, r: 1.0 },
+  2: { color: '#5d7a4b', metal: 0.3, brim: false, visor: false, r: 1.06 },
+  3: { color: '#4a6f93', metal: 0.55, brim: false, visor: false, r: 1.12 },
+  4: { color: '#4b3470', metal: 0.7, brim: false, visor: true, r: 1.2 },
+};
+
+/** 各模型頭部的大小與位置（公尺，模型縮放到指定身高之後）：up = 頭部中心在 Head 骨骼原點上方多少、fwd = 往前多少、r = 頭部半徑 */
+const HEAD_ANCHOR: Record<EnemyDef['model'], { up: number; fwd: number; r: number }> = {
+  enemy_soldier: { up: 0.3, fwd: 0.03, r: 0.33 },
+  enemy_robot_gunner: { up: 0.36, fwd: -0.04, r: 0.4 },
+};
+
+/** 頭盔模型：半球殼（依等級改變顏色與形狀）。單位是公尺，原點在頭部中心；headR 為頭部半徑，用來等比縮放 */
+export function createHelmetMesh(level: number, headR: number): THREE.Group {
+  const look = HELMET_LOOK[level] ?? HELMET_LOOK[1];
+  const k = headR / 0.15;
+  const g = new THREE.Group();
+  g.name = 'helmet';
+  const mat = new THREE.MeshStandardMaterial({ color: look.color, roughness: 0.55 - look.metal * 0.3, metalness: look.metal });
+  const R = 0.15 * k * look.r;
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(R, 20, 12, 0, Math.PI * 2, 0, Math.PI * (look.visor ? 0.62 : 0.52)), mat);
+  dome.position.y = 0.01 * k;
+  g.add(dome);
+  if (look.brim) {
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(R * 1.12, R * 1.12, 0.012 * k, 20), mat);
+    brim.position.y = 0.004 * k;
+    const peak = new THREE.Mesh(new THREE.BoxGeometry(R * 1.1, 0.012 * k, R * 0.7), mat);
+    peak.position.set(0, 0.004 * k, R * 0.95);
+    g.add(brim, peak);
+  } else {
+    // 殼緣的加強環
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(R * 0.97, 0.01 * k, 6, 24), new THREE.MeshStandardMaterial({ color: '#2b2f36', roughness: 0.6, metalness: 0.5 }));
+    rim.rotation.x = Math.PI / 2;
+    rim.position.y = (level >= 4 ? -0.062 : -0.003) * k;
+    g.add(rim);
+  }
+  if (level >= 3) {
+    const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.02 * k, 0.012 * k, R * 1.7), new THREE.MeshStandardMaterial({ color: '#20242b', roughness: 0.5, metalness: 0.6 }));
+    ridge.position.y = R * 0.97;
+    g.add(ridge);
+  }
+  if (look.visor) {
+    const visor = new THREE.Mesh(
+      new THREE.CylinderGeometry(R * 0.93, R * 0.93, 0.05 * k, 16, 1, true, -Math.PI * 0.42, Math.PI * 0.84),
+      new THREE.MeshStandardMaterial({ color: '#0d2b33', emissive: '#35e1ff', emissiveIntensity: 0.55, roughness: 0.2, metalness: 0.4, side: THREE.DoubleSide }),
+    );
+    visor.position.y = -0.03 * k;
+    visor.rotation.y = Math.PI / 2;
+    g.add(visor);
+  }
+  g.traverse((o) => { o.castShadow = false; o.frustumCulled = false; });
+  return g;
+}
+
+/** 把頭盔掛到頭部骨骼（找不到骨骼就依身高放在模型根座標）；model 必須已經縮放並定位。回傳頭盔物件 */
+function attachHelmet(root: THREE.Group, model: THREE.Object3D, level: number, def: EnemyDef): THREE.Group {
+  const anchor = HEAD_ANCHOR[def.model];
+  const helmet = createHelmetMesh(level, anchor.r);
+  let head: THREE.Object3D | null = null;
+  model.traverse((o) => { if (!head && (o as THREE.Bone).isBone && /^head$/i.test(o.name)) head = o; });
+  root.updateMatrixWorld(true);
+  if (!head) {
+    helmet.position.set(0, def.height * 0.93, anchor.fwd);
+    root.add(helmet);
+    return helmet;
+  }
+  const bone = head as THREE.Object3D;
+  const bw = new THREE.Vector3(), bq = new THREE.Quaternion(), bs = new THREE.Vector3();
+  bone.matrixWorld.decompose(bw, bq, bs);
+  // 頭部中心 = 骨骼原點 + HEAD_ANCHOR；換算成骨骼本地座標，並抵消骨骼的旋轉與縮放讓頭盔保持正立
+  const center = bw.clone().add(new THREE.Vector3(0, anchor.up, anchor.fwd));
+  helmet.position.copy(bone.worldToLocal(center));
+  helmet.quaternion.copy(bq.clone().invert());
+  helmet.scale.set(1 / bs.x, 1 / bs.y, 1 / bs.z);
+  bone.add(helmet);
+  return helmet;
+}
+
 export interface EnemyModelInstance {
   root: THREE.Group;
+  /** 頭盔物件（沒戴頭盔為 null）；耐久歸零時由 Enemy 隱藏 */
+  helmet: THREE.Group | null;
   anim: EnemyAnim | null;
   /** 載入失敗時的替代方塊人偶 */
   fallback: boolean;
@@ -131,9 +213,18 @@ function fallbackBody(def: EnemyDef): THREE.Group {
 const tintCache = new Map<string, THREE.Material>();
 
 /** 建立一個敵人的模型（SkeletonUtils.clone，每隻有自己的骨架與 mixer） */
-export async function createEnemyModel(def: EnemyDef, weaponId: string, castShadow: boolean): Promise<EnemyModelInstance> {
+export async function createEnemyModel(def: EnemyDef, weaponId: string, castShadow: boolean, helmetLevel = 0): Promise<EnemyModelInstance> {
   const gltf = await preloadEnemyModel(def.model);
-  if (!gltf) return { root: fallbackBody(def), anim: null, fallback: true };
+  if (!gltf) {
+    const fb = fallbackBody(def);
+    let helmet: THREE.Group | null = null;
+    if (helmetLevel > 0) {
+      helmet = createHelmetMesh(helmetLevel, 0.15 * (def.height / 1.8));
+      helmet.position.y = def.height * 0.92 + 0.03;
+      fb.add(helmet);
+    }
+    return { root: fb, helmet, anim: null, fallback: true };
+  }
   const model = SkeletonUtils.clone(gltf.scene);
 
   if (def.model === 'enemy_soldier') {
@@ -181,5 +272,6 @@ export async function createEnemyModel(def: EnemyDef, weaponId: string, castShad
 
   const root = new THREE.Group();
   root.add(model);
-  return { root, anim: new EnemyAnim(model, gltf.animations, def.model), fallback: false };
+  const helmet = helmetLevel > 0 ? attachHelmet(root, model, helmetLevel, def) : null;
+  return { root, helmet, anim: new EnemyAnim(model, gltf.animations, def.model), fallback: false };
 }

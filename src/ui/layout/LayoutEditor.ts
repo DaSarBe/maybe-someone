@@ -54,6 +54,13 @@ function mockOf(id: ElementId): HTMLElement {
       b.appendChild(bar);
       return b;
     }
+    case 'helmet': {
+      const b = el('div', 'cb-tbox cb-helmetbox');
+      const bar = el('div', 'cb-bar cb-helmet');
+      const i = el('i'); i.style.width = '70%'; bar.append(i, el('span', '', '頭盔 III 42/60'));
+      b.appendChild(bar);
+      return b;
+    }
     case 'credits': return el('div', 'hud-credits', '¥12,500');
     case 'prompt': {
       const box = el('div', 'hud-promptbox lay');

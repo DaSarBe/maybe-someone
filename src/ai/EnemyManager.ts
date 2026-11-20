@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { GameBus } from '../core/EventBus';
 import type { HitZone } from '../combat/Damage';
+import type { WeaponClass } from '../data/helmet';
 import { intersectHitZones } from '../combat/HitZones';
 import type { CombatFx } from '../combat/Fx';
 import type { TargetHit, TargetProvider } from '../combat/WeaponSystem';
@@ -25,7 +26,7 @@ export interface ManagerDeps {
   trace: WorldTrace;
   player: PlayerTarget;
   lightAt(p: THREE.Vector3): number;
-  damagePlayer(base: number, zone: HitZone, from: THREE.Vector3, killer: string): void;
+  damagePlayer(base: number, zone: HitZone, from: THREE.Vector3, killer: string, weaponClass: WeaponClass): void;
   onDeath(e: Enemy): void;
   surfaceAt(p: THREE.Vector3): Surface;
   castShadow: boolean;
@@ -90,6 +91,16 @@ export class EnemyManager implements TargetProvider {
     }
     await Promise.all(made.map((e) => e.load()));
     return made;
+  }
+
+  /** 測試掛鉤：在指定位置生成一個敵人，可強制指定頭盔（helmet = null 代表不戴） */
+  async debugSpawn(kind: EnemySpawn['kind'], position: THREE.Vector3, parent: THREE.Object3D, helmet?: { id: string; dur: number } | null): Promise<Enemy> {
+    const e = new Enemy(ENEMIES[kind], { kind, position: position.clone(), yaw: 0 } as EnemySpawn, this.ctx);
+    if (helmet !== undefined) { e.helmetId = helmet?.id ?? null; e.helmetDur = helmet?.dur ?? 0; }
+    this.list.push(e);
+    parent.add(e.root);
+    await e.load();
+    return e;
   }
 
   get alive(): Enemy[] { return this.list.filter((e) => !e.dead); }
@@ -174,7 +185,7 @@ export class EnemyManager implements TargetProvider {
     const b = best;
     return {
       distance: b.distance, point: b.point, zone: b.zone,
-      damage: (base, zone, from) => ({ killed: b.e.takeHit(base, zone, from).killed }),
+      damage: (base, zone, from, weaponClass) => ({ killed: b.e.takeHit(base, zone, from, weaponClass).killed }),
     };
   }
 }

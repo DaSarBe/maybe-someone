@@ -18,7 +18,9 @@ export interface GameEvents {
   /** 撿起物品（AudioManager 播放 ui pickup） */
   itemPicked: { itemId: string; qty: number };
   /** 玩家受傷（HUD 暈影與方向指示）。from 為攻擊者位置 */
-  playerHurt: { amount: number; from?: THREE.Vector3; killed: boolean; /** 護甲吸收了這一發（金屬悶響） */ armor?: boolean };
+  playerHurt: { amount: number; from?: THREE.Vector3; killed: boolean; /** 護甲吸收了這一發（金屬悶響） */ armor?: boolean; /** 頭盔擋下了這一發（金屬「叮」，不播肉體命中音） */ helmet?: boolean; /** 打中頭部 */ head?: boolean };
+  /** 頭盔被打中（玩家的：HUD 閃白光與耳鳴；level 為生效等級） */
+  helmetHit: { target: 'player' | 'enemy'; level: number };
   /** 玩家的子彈打中敵人（命中標記） */
   enemyHit: { zone: 'head' | 'body' | 'limb'; killed: boolean; position: THREE.Vector3 };
   /** 子彈從玩家附近飛過（敵人打偏）。position 為子彈最接近玩家的點 */

@@ -1,4 +1,5 @@
-import { ARMOR_STATS, BACKPACK_STATS } from '../data/gear';
+import { ARMOR_STATS, BACKPACK_STATS, HELMET_STATS } from '../data/gear';
+import { helmetSummary } from '../data/helmet';
 import { CATEGORY_NAMES, RARITY_COLORS, RARITY_NAMES, getItem } from '../data/items';
 import { WEAPON_STATS } from '../data/weapons';
 import { CONTAINER_NAMES, type ContainerId, type Loc } from '../economy/EconomyService';
@@ -18,7 +19,7 @@ export type Selection =
 type DragSrc = { kind: 'slot'; loc: Loc } | { kind: 'equip'; slot: EquipSlot };
 let dragSrc: DragSrc | null = null;
 
-export const EQUIP_LABELS: Record<EquipSlot, string> = { primary: '主武器', secondary: '副武器', armor: '護甲', backpack: '背包' };
+export const EQUIP_LABELS: Record<EquipSlot, string> = { primary: '主武器', secondary: '副武器', armor: '護甲', helmet: '頭盔', backpack: '背包' };
 
 /** 面板共用的狀態：目前選取的物品與要操作的數量 */
 export class InvCtx {
@@ -275,6 +276,12 @@ export function itemInfo(ctx: InvCtx, stack: ItemStack, opts: { price?: { label:
     rows.push(['等級', `${a.tier} 級（減傷 ${Math.round(a.reduction * 100)}%）`]);
     rows.push(['耐久', `${stack.dur ?? a.durability} / ${a.durability}`]);
   }
+  const hm = HELMET_STATS[def.id];
+  if (hm) {
+    rows.push(['等級', `${hm.level} 級${hm.level >= 3 ? '（可擋步槍爆頭）' : '（擋手槍、衝鋒槍爆頭）'}`]);
+    rows.push(['耐久', `${stack.dur ?? hm.durability} / ${hm.durability}`]);
+    rows.push(['爆頭', helmetSummary(hm.level)]);
+  }
   const b = BACKPACK_STATS[def.id];
   if (b) rows.push(['容量', `${b.slots} 格 / ${b.maxWeight} kg`]);
   const unit = ctx.eco.sellPriceOf(stack.id);
@@ -309,7 +316,7 @@ export function slotActions(ctx: InvCtx, loc: Loc, stack: ItemStack, hub: boolea
   const eco = ctx.eco;
   const def = getItem(stack.id)!;
   const out: HTMLElement[] = [];
-  const equippable = def.category === 'weapon' || def.category === 'armor' || def.category === 'backpack';
+  const equippable = def.category === 'weapon' || def.category === 'armor' || def.category === 'helmet' || def.category === 'backpack';
   if (equippable) {
     out.push(btn('裝備', () => {
       if (ctx.ui.report(eco.equip(loc), `已裝備 ${def.name}`)) ctx.select(null);
